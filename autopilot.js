@@ -707,6 +707,17 @@ export async function main(ns) {
                 launchScriptHelper(ns, 'gangs.js');
         }
 
+        // Launch darknet farmer if darknet API is available (Bitburner v3.0+) and not disabled
+        if (!options['disable-darknet'] && !findScript('darknet-farmer.js')) {
+            try {
+                if (typeof ns.dnet !== 'undefined' && ns.dnet.probe() !== undefined) {
+                    launchScriptHelper(ns, 'darknet-farmer.js');
+                }
+            } catch (e) {
+                // Darknet not accessible yet, will retry next cycle
+            }
+        }
+
         // Launch work-for-factions if it isn't already running (rules for maybe killing unproductive instances are above)
         // Note: We delay launching our own 'work-for-factions.js' until daemon has warmed up, so we don't steal it's "kickstartHackXp" study focus
         if ((4 in unlockedSFs) && !findScript('work-for-factions.js') && Date.now() - daemonStartTime > 30000) {
