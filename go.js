@@ -684,24 +684,25 @@ export async function main(ns) {
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
     function getSecureTerritory() {
-        //圈地！围棋胜负的本质是围地大小，吃子是手段不是目的
-        //找围空价值最高的点：周围空位多+有己方接应+位置好（3线/4线）
+        //圈地！使用小飞/大飞高效圈地，不是一步一步爬
+        //小飞(马步): 从己方棋子跳出2×1格，高效且不惧切断
+        //大飞(大马步): 从己方棋子跳出3×1格，更远更快
         const size = board[0].length;
         let bestMove = null;
         let bestScore = 0;
+        let isKnight = false;
         const moves = getAllValidMoves(true);
         for (const [x, y] of moves) {
             if (!['?', 'O'].includes(contested[x][y])) continue
 
-            //统计周围空位数量（BFS扩展找空）
+            //统计周围空位（BFS）——识别大空
             const emptyVisited = new Set();
             let emptyArea = 0;
             const queue = [[x, y]];
             emptyVisited.add(x + ',' + y);
             for (let qi = 0; qi < queue.length && qi < 30; qi++) {
                 const [cx, cy] = queue[qi];
-                const ck = [[cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]];
-                for (const [nx, ny] of ck) {
+                for (const [nx, ny] of [[cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]]) {
                     if (nx >= 0 && nx < size && ny >= 0 && ny < size && !emptyVisited.has(nx + ',' + ny)) {
                         emptyVisited.add(nx + ',' + ny);
                         if (board[nx][ny] === '.') {
@@ -711,34 +712,57 @@ export async function main(ns) {
                     }
                 }
             }
-            //空位少于3个（价值太低）或超过50个（太虚）
-            if (emptyArea < 3 || emptyArea > 50) continue
+            if (emptyArea < 3) continue
 
-            //检查己方棋链支持度（附近有多少己方棋子）
+            //检测小飞/大飞形状：从己方棋子跳出来
+            let knightBonus = 0;
+            const knightMoves = [
+                [-2, -1], [-2, 1], [2, -1], [2, 1],
+                [-1, -2], [-1, 2], [1, -2], [1, 2], //小飞
+                [-3, -1], [-3, 1], [3, -1], [3, 1],
+                [-1, -3], [-1, 3], [1, -3], [1, 3], //大飞
+            ];
+            for (const [dx, dy] of knightMoves) {
+                const nx = x + dx, ny = y + dy;
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
+                    const isSmall = Math.abs(dx) + Math.abs(dy) === 3; //小飞=曼哈顿距离3
+                    const isBig = Math.abs(dx) + Math.abs(dy) === 4;  //大飞=曼哈顿距离4
+                    if (isSmall) knightBonus = Math.max(knightBonus, 5);
+                    if (isBig) knightBonus = Math.max(knightBonus, 3);
+                }
+            }
+
+            //支持度检查：3格内己方棋子（按距离加权）
             let friendlySupport = 0;
             for (let dx = -3; dx <= 3; dx++) {
                 for (let dy = -3; dy <= 3; dy++) {
                     if (dx === 0 && dy === 0) continue;
                     const nx = x + dx, ny = y + dy;
                     if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                        friendlySupport += (4 - Math.abs(dx) - Math.abs(dy)) * 0.5; //越近权重越大
+                        friendlySupport += (4 - Math.abs(dx) - Math.abs(dy)) * 0.5;
                     }
                 }
             }
-            if (friendlySupport < 1) continue //完全没有己方接应，孤军深入
+            //有飞就不需要支持度门槛（飞本身就有接应），没飞则需要
+            if (knightBonus === 0 && friendlySupport < 1) continue
 
-            //位置加分：3线(距边2格)=最佳，4线=次之
+            //位置加分：3线=最佳
             const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
             const positionBonus = distEdge === 2 ? 3 : distEdge === 3 ? 2 : distEdge >= 4 ? 1.5 : 0.5;
 
-            //评分：空位面积×己方支持度×位置
-            const score = emptyArea * friendlySupport * positionBonus;
+            //评分：(空位面积+飞加分) × 支持度 × 位置
+            //飞形状评分远高于一步一步走
+            const score = (emptyArea + knightBonus * 8) * Math.max(friendlySupport, 1) * positionBonus;
             if (score > bestScore) {
                 bestScore = score;
                 bestMove = [x, y];
+                isKnight = knightBonus > 0;
             }
         }
-        return bestMove ? { coords: bestMove, msg: 'Territory: ' + Math.round(bestScore) } : [];
+        return bestMove ? {
+            coords: bestMove,
+            msg: isKnight ? 'Knight Territory: ' + Math.round(bestScore) : 'Territory: ' + Math.round(bestScore)
+        } : [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
