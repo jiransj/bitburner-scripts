@@ -205,6 +205,7 @@ export async function main(ns) {
                 switch (playStyle) {
                     case 0:  //Netburners
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -229,6 +230,7 @@ export async function main(ns) {
                         break
                     case 1:  //The Black Hand
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -252,6 +254,7 @@ export async function main(ns) {
                         break
                     case 2: //Mr. Mustacio - Slum Snakes
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -275,6 +278,7 @@ export async function main(ns) {
                         break
                     case 3: //Daedalus
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -298,6 +302,7 @@ export async function main(ns) {
                         break
                     case 4: //Tetrads
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -321,6 +326,7 @@ export async function main(ns) {
                         break
                     case 5: //Illum
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -343,6 +349,7 @@ export async function main(ns) {
                         break
                     case 6: //??????
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -633,6 +640,53 @@ export async function main(ns) {
             }
         }
         return [];
+    }
+    /** @param {NS} ns
+     * @returns {{coords: number[]; msg: string;}} */
+    function getKillOrReduce() {
+        //判断对方棋块死活，采取不同策略：
+        //  ① 做不出两只眼 → 杀！紧气包围
+        //  ② 已经做出两只眼 → 不浪费子力去杀，限制其圈地
+        const moveOptions = [];
+        const size = board[0].length;
+        let highScore = 0;
+        const moves = getAllValidMoves(true);
+        for (const [x, y] of moves) {
+            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
+
+            let oppEyesNearby = 0;
+            let oppChainSize = 0;
+            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+            for (const [nx, ny] of checks) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
+                    oppChainSize += getChainValue(nx, ny, 'O');
+                    oppEyesNearby += getEyeValue(nx, ny, 'O');
+                }
+            }
+            if (oppChainSize === 0) continue;
+
+            let score;
+            let msg;
+            if (oppEyesNearby < 2) {
+                //做不出两只眼→可以杀！紧气包围，优先杀大棋
+                score = oppChainSize * oppChainSize * 10;
+                msg = 'Kill';
+            } else {
+                //已经活了两只眼→不浪费子力，限制圈地
+                score = 1;
+                msg = 'Reduce';
+            }
+
+            if (score > highScore) {
+                highScore = score;
+                moveOptions.length = 0;
+                moveOptions.push([x, y]);
+            } else if (score === highScore) {
+                moveOptions.push([x, y]);
+            }
+        }
+        const idx = Math.floor(Math.random() * moveOptions.length);
+        return moveOptions[idx] ? { coords: moveOptions[idx], msg: msg + ': ' + highScore } : [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
@@ -1644,6 +1698,7 @@ export async function main(ns) {
         const [x, y] = attack.coords
         if (x === undefined) return false
         //全局防贴边：x<=1或x>=size-2或y<=1或y>=size-2不允许落子，除非在进攻（提子）
+        //官子阶段（棋盘大部分已填满）放松限制，允许收官
         const size = board[0].length
         if (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2) {
             let capturing = false
@@ -1651,7 +1706,16 @@ export async function main(ns) {
             else if (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) capturing = true
             else if (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) capturing = true
             else if (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1) capturing = true
-            if (!capturing) return false //贴边不进攻=坏棋，跳过让后续函数尝试
+            if (!capturing) {
+                //官子检测：空位少于20%时视为官子阶段，允许贴边走
+                const totalCells = size * size
+                let emptyCells = 0
+                for (let i = 0; i < size; i++)
+                    for (let j = 0; j < size; j++)
+                        if (board[i][j] === '.') emptyCells++
+                if (emptyCells > totalCells * 0.2) return false //中盘：禁止贴边
+                //官子：允许贴边收官
+            }
         }
         let mid = performance.now()
         ns.printf("%s", attack.msg)
