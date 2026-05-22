@@ -1333,6 +1333,11 @@ export async function main(ns) {
     function getCreateEyeMove() {
         //基于最强的Illuminati AI的getEyeCreationMove逻辑
         //造眼是围棋根本：一块棋拥有两只眼就永远不能被提
+        //真眼vs假眼的关键：
+        //  中央点：至少3/4面己方包围（棋盘边界不算）
+        //  边点：至少2/3面己方包围
+        //  角点：至少2/2面己方包围
+        //  斜对角不能是对方棋子（对方在斜角会切断连接，使眼变假）
         const moveOptions = [];
         const size = board[0].length;
         let highValue = 0;
@@ -1342,13 +1347,15 @@ export async function main(ns) {
             if (createsLib(x, y, 'X')) continue
             if (!['?', 'O'].includes(contested[x][y])) continue
 
-            //统计周围4个方向：我方棋子+棋盘边界的数量（围墙越多的点越是好眼位）
+            //统计4个正方向：我方棋子和棋盘边界的数量
             let friendlyOrWall = 0;
             let emptyCount = 0;
+            let availableDirs = 4; //可用的正方向数量（排除棋盘边界）
             const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
             for (const [nx, ny] of checks) {
                 if (nx < 0 || nx >= size || ny < 0 || ny >= size) {
                     friendlyOrWall++; //棋盘边界相当于己方墙壁
+                    availableDirs--;  //这个方向不存在
                 } else if (board[nx][ny] === 'X') {
                     friendlyOrWall++;
                 } else if (board[nx][ny] === '.') {
@@ -1356,8 +1363,23 @@ export async function main(ns) {
                 }
             }
 
-            //AI核心逻辑：眼位候选需要至少2个己方/边界包围，且有至少1个空位
-            if (friendlyOrWall >= 2 && emptyCount >= 1) {
+            //根据位置类型确定真眼所需的最小围墙数
+            let minWallsForEye;
+            if (availableDirs === 4) minWallsForEye = 3; //中央：至少3/4
+            else if (availableDirs === 3) minWallsForEye = 2; //边：至少2/3
+            else minWallsForEye = 2; //角：至少2/2
+
+            //检查4个斜对角：对方棋子超过2个会使眼变假（切断连接）
+            let diagOpponents = 0;
+            const diagChecks = [[x - 1, y - 1], [x - 1, y + 1], [x + 1, y - 1], [x + 1, y + 1]];
+            for (const [nx, ny] of diagChecks) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
+                    diagOpponents++;
+                }
+            }
+
+            //真眼判定：围墙够 + 至少有1个空位（眼位本身）+ 斜对角不能太多对方
+            if (friendlyOrWall >= minWallsForEye && emptyCount >= 1 && diagOpponents <= 2) {
                 let maxChainSize = 0;
                 let minChainLibs = 999;
                 let totalEyeValue = 0;
