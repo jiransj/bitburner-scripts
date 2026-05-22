@@ -119,123 +119,103 @@ export async function main(ns) {
     }
 
     // ── 评分系统 ──
+    // 注意: 评分只用于在模式匹配候选之间做选择, 以及没有模式匹配时的后备
+    // 不鼓励"贴近对手送子"——贴近对手只有在能提子或救子时才加分
     function scoreMove(board, x, y, chainList, libMap, size, isStrongOpponent) {
         const me = 'X', opp = 'O';
         let score = 0;
-        const isIlluminati = isStrongOpponent;
         const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
 
-        // 1. 气数
-        let myLibs = 0;
+        // 1. ⭐ 打吃提子 (最优先)
+        for (const chain of chainList) {
+            if (chain.color !== opp) continue;
+            const libs = libMap.get(chain.id) ?? 99;
+            if (libs > 1) continue; // 只有1气才考虑
+            const isAdj = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
+            if (isAdj) score += 40;
+        }
+
+        // 2. ⭐ 救子 (自己的子被打吃)
+        for (const chain of chainList) {
+            if (chain.color !== me) continue;
+            const libs = libMap.get(chain.id) ?? 99;
+            if (libs > 1) continue;
+            const isAdj = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
+            if (isAdj) score += 35;
+        }
+
+        // 3. 气数: 落子后至少要有气 (不能送死)
+        let libsAfter = 0;
         for (const [dx, dy] of dirs) {
             const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === '.') myLibs++;
+            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === '.') libsAfter++;
         }
-        score += myLibs * 3;
+        if (libsAfter === 0) return -999; // 送死, 绝对不走
+        score += libsAfter * 2;
 
-        // 2. 连接
+        // 4. 连接自己的子 (适度加分)
         let connects = 0;
         for (const [dx, dy] of dirs) {
             const nx = x+dx, ny = y+dy;
             if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === me) connects++;
         }
-        score += connects * 5;
+        score += connects * 3;
 
-        // 3. 切断
+        // 5. 切断 (适度加分——不要为切断而切断)
         let cuts = 0;
         for (const [dx, dy] of dirs) {
             const nx = x+dx, ny = y+dy;
             if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) cuts++;
         }
-        score += cuts * 8;
+        score += cuts * 4;
 
-        // 4. 提子潜力
+        // 6. 👎 贴近对手太多是坏棋 (除非能提子)
+        let oppAdj = 0;
         for (const [dx, dy] of dirs) {
             const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) {
-                // 找这个对手子的链 ID
-                for (const chain of chainList) {
-                    if (chain.color !== opp) continue;
-                    const isAdj = chain.stones.some(([sx, sy]) => sx === nx && sy === ny);
-                    if (isAdj) {
-                        const libs = libMap.get(chain.id) ?? 99;
-                        if (libs <= 1) score += 25;  // 打吃
-                        else if (libs <= 2) score += 8;
-                        break;
-                    }
-                }
-            }
+            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) oppAdj++;
+        }
+        // 如果贴着3个以上对手子又没有提子潜力, 大概率是送死
+        if (oppAdj >= 3 && !chainList.some(c => c.color===opp && (libMap.get(c.id)??99)<=1)) {
+            score -= 15;
         }
 
-        // 5. 边缘价值
+        // 7. 边缘价值 (围棋金角银边草肚皮)
         const edgeDist = Math.min(x, y, size-1-x, size-1-y);
-        if (edgeDist === 0) score += 3;
-        else if (edgeDist === 1) score += 10;
-        else if (edgeDist === 2) score += 7;
-        else score += 2;
+        if (edgeDist === 0) score -= 5;   // 一线: 坏棋 (除了特定情况)
+        else if (edgeDist === 1) score += 8;  // 二线: 好 (黄金线)
+        else if (edgeDist === 2) score += 10; // 三线: 最好
+        else if (edgeDist === 3) score += 5;  // 四线: 还行
+        else score += 1;                     // 中腹: 待定
 
-        // 6. 眼位潜力
-        let friendly = 0, total = 0;
-        const allDirs = [[-1,0],[1,0],[0,-1],[0,1],[1,1],[1,-1],[-1,1],[-1,-1]];
-        for (const [dx, dy] of allDirs) {
-            const nx = x+dx, ny = y+dy;
-            total++;
-            if (nx<0 || nx>=size || ny<0 || ny>=size) { friendly++; continue; }
-            if (board[nx][ny] === me || board[nx][ny] === '.') friendly++;
+        // 8. 远离对手: 周围3格内对手子越少越好 (大局观)
+        let oppInRadius = 0;
+        for (let dx = -3; dx <= 3; dx++) {
+            for (let dy = -3; dy <= 3; dy++) {
+                if (dx===0 && dy===0) continue;
+                const nx = x+dx, ny = y+dy;
+                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) oppInRadius++;
+            }
         }
-        score += (friendly / total) * 6;
+        // 对手子少=空旷地带=发展潜力
+        score += Math.max(0, 12 - oppInRadius) * 1.5;
 
-        // 7. 救子
+        // 9. 拆边价值: 沿边方向有开阔空间 (发展领地)
+        if (edgeDist <= 2) {
+            let sidesEmpty = 0;
+            for (const step of [-2, 2]) {
+                if (x+step >= 0 && x+step < size && board[x+step]?.[y] === '.') sidesEmpty++;
+                if (y+step >= 0 && y+step < size && board[x]?.[y+step] === '.') sidesEmpty++;
+            }
+            score += sidesEmpty * 6;
+        }
+
+        // 10. 靠近自己的大龙 (保持整体)
         for (const chain of chainList) {
-            if (chain.color !== me) continue;
-            const libs = libMap.get(chain.id) ?? 99;
-            if (libs > 1) continue;
-            for (const [sx, sy] of chain.stones) {
-                if (Math.abs(x-sx) + Math.abs(y-sy) === 1) {
-                    score += 20; // 接气!
-                    break;
-                }
-            }
-        }
-
-        // ─── 针对 Illuminati 的策略 ───
-        if (isIlluminati) {
-            // 大场价值
-            let emptyZone = 0;
-            for (let dx = -3; dx <= 3; dx++) {
-                for (let dy = -3; dy <= 3; dy++) {
-                    if (dx === 0 && dy === 0) continue;
-                    const nx = x+dx, ny = y+dy;
-                    if (nx>=0 && nx<size && ny>=0 && ny<size) {
-                        if (board[nx][ny] === '.') emptyZone++;
-                        else if (board[nx][ny] === me) emptyZone += 0.5;
-                    }
-                }
-            }
-            score += emptyZone * 2;
-
-            // 拆边
-            if (edgeDist === 1 || edgeDist === 2) {
-                let sidesEmpty = 0;
-                for (const step of [-2, 2]) {
-                    if (x+step >= 0 && x+step < size && board[x+step]?.[y] === '.') sidesEmpty++;
-                    if (y+step >= 0 && y+step < size && board[x]?.[y+step] === '.') sidesEmpty++;
-                }
-                score += sidesEmpty * 5;
-            }
-
-            // 双打吃
-            let atariCount = 0;
-            for (const chain of chainList) {
-                if (chain.color !== opp) continue;
-                const libs = libMap.get(chain.id) ?? 99;
-                if (libs > 1) continue;
-                // 检查是否相邻
-                const isAdj = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
-                if (isAdj) atariCount++;
-            }
-            if (atariCount >= 2) score += 45;
-            else if (atariCount === 1) score += 15;
+            if (chain.color !== me || chain.stones.length < 2) continue;
+            const minDist = Math.min(...chain.stones.map(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy)));
+            if (minDist === 2) score += 4;   // 跳一个
+            else if (minDist === 3) score += 3; // 大跳
         }
 
         return score;
@@ -336,14 +316,46 @@ export async function main(ns) {
     }
 
     // ── 候选生成 ──
+    // 策略: 模式匹配优先, 只有没模式时才用保守的启发式
     function collectCandidates(board, testBoard, validMoves, chainList, libMap, size, contested) {
         const candidates = [];
 
+        // 1. 提子检测 (最高优先级)
         for (const [x, y] of validMoves) {
-            for (const p of disrupt4) {
-                if (matchPatternAt(testBoard, x, y, p, contested)) {
-                    candidates.push({x,y,source:'disrupt4',pri:90});
+            for (const chain of chainList) {
+                if (chain.color !== 'O') continue;
+                const libs = libMap.get(chain.id) ?? 99;
+                if (libs > 1) continue; // 只有打吃才考虑
+                const canCapture = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
+                if (canCapture) {
+                    candidates.push({x,y,source:'capture',pri:95});
                     break;
+                }
+            }
+        }
+
+        // 2. 救子检测
+        for (const [x, y] of validMoves) {
+            for (const chain of chainList) {
+                if (chain.color !== 'X') continue;
+                const libs = libMap.get(chain.id) ?? 99;
+                if (libs > 1) continue;
+                const canSave = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
+                if (canSave) {
+                    candidates.push({x,y,source:'defend',pri:90});
+                    break;
+                }
+            }
+        }
+
+        // 3. 原版模式匹配 (Sphyxis 手调模式, 经过实战检验)
+        if (candidates.length === 0) {
+            for (const [x, y] of validMoves) {
+                for (const p of disrupt4) {
+                    if (matchPatternAt(testBoard, x, y, p, contested)) {
+                        candidates.push({x,y,source:'disrupt4',pri:85});
+                        break;
+                    }
                 }
             }
         }
@@ -351,7 +363,7 @@ export async function main(ns) {
             for (const [x, y] of validMoves) {
                 for (const p of disrupt5) {
                     if (matchPatternAt(testBoard, x, y, p, contested)) {
-                        candidates.push({x,y,source:'disrupt5',pri:80});
+                        candidates.push({x,y,source:'disrupt5',pri:75});
                         break;
                     }
                 }
@@ -361,42 +373,56 @@ export async function main(ns) {
             for (const [x, y] of validMoves) {
                 for (const p of def5) {
                     if (matchPatternAt(testBoard, x, y, p, contested)) {
-                        candidates.push({x,y,source:'def5',pri:70});
+                        candidates.push({x,y,source:'def5',pri:65});
                         break;
                     }
                 }
             }
         }
 
+        // 4. 保守后备: 占空角/拆边 (不贴近对手)
         if (candidates.length === 0) {
-            const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
-            // 提子
+            const edgeDist = (x,y) => Math.min(x, y, size-1-x, size-1-y);
+
+            // 空角星位
+            const starPoints = [];
             for (const [x, y] of validMoves) {
-                let captures = 0;
-                for (const [dx, dy] of dirs) {
-                    const nx=x+dx, ny=y+dy;
-                    if (nx>=0&&nx<size&&ny>=0&&ny<size&&board[nx][ny]==='O') captures++;
+                const ed = edgeDist(x,y);
+                if (ed === 2 || ed === 3) {
+                    // 检查周围3格内无对手子
+                    let oppNear = false;
+                    for (let dx=-3; dx<=3 && !oppNear; dx++)
+                        for (let dy=-3; dy<=3 && !oppNear; dy++) {
+                            const nx=x+dx, ny=y+dy;
+                            if (nx>=0&&nx<size&&ny>=0&&ny<size&&board[nx][ny]==='O') oppNear=true;
+                        }
+                    if (!oppNear) starPoints.push({x,y,source:'star',pri:50});
                 }
-                if (captures>0) candidates.push({x,y,source:'capture',pri:85});
             }
-            // 断点
-            for (const [x, y] of validMoves) {
-                let oppAdj=0;
-                for (const [dx, dy] of dirs) {
-                    const nx=x+dx, ny=y+dy;
-                    if (nx>=0&&nx<size&&ny>=0&&ny<size&&board[nx][ny]==='O') oppAdj++;
-                }
-                if (oppAdj>=2) candidates.push({x,y,source:'cut',pri:60});
-            }
-            // 靠近
-            for (const [x, y] of validMoves) {
-                for (const [dx, dy] of dirs) {
-                    const nx=x+dx, ny=y+dy;
-                    if (nx>=0&&nx<size&&ny>=0&&ny<size&&board[nx][ny]==='O') {
-                        candidates.push({x,y,source:'approach',pri:40});
-                        break;
+            candidates.push(...starPoints);
+
+            // 如果还没有候选, 走保守的拆边
+            if (candidates.length === 0) {
+                for (const [x, y] of validMoves) {
+                    const ed = edgeDist(x,y);
+                    if (ed !== 1 && ed !== 2) continue; // 只考虑三线四线
+                    // 两侧至少一个方向开阔
+                    let openSides = 0;
+                    for (const step of [-3, 3]) {
+                        if (x+step>=0 && x+step<size && board[x+step]?.[y]==='.') openSides++;
+                        if (y+step>=0 && y+step<size && board[x]?.[y+step]==='.') openSides++;
                     }
+                    if (openSides >= 1) candidates.push({x,y,source:'side',pri:40});
                 }
+            }
+
+            // 最后一个都没有: 走星位附近
+            if (candidates.length === 0) {
+                const center = Math.floor(size/2);
+                const near = validMoves
+                    .map(([x,y]) => ({x,y,d:Math.abs(x-center)+Math.abs(y-center)}))
+                    .sort((a,b) => a.d - b.d);
+                if (near.length > 0) candidates.push({...near[0],source:'center',pri:20});
             }
         }
 
@@ -417,21 +443,21 @@ export async function main(ns) {
         const candidates = collectCandidates(board, testBoard, validMoves, chainList, libMap, size, contested);
         const scored = [];
 
-        // 评分所有合法位置
-        for (const [x, y] of validMoves) {
-            const s = scoreMove(board, x, y, chainList, libMap, size, isStrong);
-            // 额外加分: 候选来源
-            const match = candidates.find(c => c.x === x && c.y === y);
-            const bonus = match ? match.pri : 0;
-            scored.push({x, y, score: s + bonus});
+        // 只对候选位置评分 (不遍历所有合法位置, 避免乱走)
+        for (const c of candidates) {
+            const s = scoreMove(board, c.x, c.y, chainList, libMap, size, isStrong);
+            scored.push({x: c.x, y: c.y, score: s + c.pri});
         }
 
-        scored.sort((a, b) => b.score - a.score);
+        // 如果没有候选, pass
         if (scored.length === 0) return null;
-        if (scored[0].score < -50) return null;
 
-        // 1步前瞻 (前5名)
-        const topN = scored.slice(0, Math.min(5, scored.length));
+        scored.sort((a, b) => b.score - a.score);
+        // 评分太低也 pass
+        if (scored[0].score < 10) return null;
+
+        // 1步前瞻 (前3名)
+        const topN = scored.slice(0, Math.min(3, scored.length));
         if (topN.length === 1) return [topN[0].x, topN[0].y];
 
         let bestMove = null, bestValue = -Infinity;
@@ -441,12 +467,12 @@ export async function main(ns) {
             simBoard[c.x][c.y] = 'X';
             const simStrs = simBoard.map(row => row.join(''));
 
-            // 预测对手最佳应对
+            // 预测对手最佳应对 (只检查候选位置, 节约计算)
             let worstOpp = Infinity;
-            for (const [ox, oy] of validMoves) {
-                if (ox === c.x && oy === c.y) continue;
+            for (const oc of candidates) {
+                if (oc.x === c.x && oc.y === c.y) continue;
                 const oppBoard = simStrs.map(row => row.split(''));
-                oppBoard[ox][oy] = 'O';
+                oppBoard[oc.x][oc.y] = 'O';
                 const oppStrs = oppBoard.map(row => row.join(''));
                 const oppScore = estimateScore(oppStrs, komi);
                 if (oppScore < worstOpp) worstOpp = oppScore;
