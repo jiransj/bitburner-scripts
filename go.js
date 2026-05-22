@@ -1473,6 +1473,9 @@ export async function main(ns) {
     function getLiveGroupAttack() {
         //活棋进攻：当己方棋块已有两只眼（活棋），以此为基地激进扩张
         //活棋是安全的进攻基地——对方提不掉，可以放心向外发展
+        //支持两种拓展模式：
+        //  ① 紧贴(1格)：紧邻活棋落子，稳固
+        //  ② 跳(2格)：从活棋跳出2格拓展，中间空位确保可以连回
         const moveOptions = [];
         const size = board[0].length;
         let highValue = 0;
@@ -1480,10 +1483,11 @@ export async function main(ns) {
         for (const [x, y] of moves) {
             if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
 
-            //检查落子点是否邻接活棋（眼值>=2的己方棋链）
             let liveGroupEyes = 0;
             let liveGroupSize = 0;
             let attackValue = 0;
+
+            //① 检查紧贴(1格)邻接的活棋
             const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
             for (const [nx, ny] of checks) {
                 if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
@@ -1493,17 +1497,36 @@ export async function main(ns) {
                         liveGroupSize += getChainValue(nx, ny, 'X');
                     }
                 }
-                //攻击价值：邻接的对方棋链
                 if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
                     attackValue += getChainValue(nx, ny, 'O');
+                }
+            }
+
+            //② 检查"跳"(2格)：从活棋跳出2格，中间为空
+            let jumpBonus = 0;
+            const jumpDirs = [[-2, 0, -1, 0], [2, 0, 1, 0], [0, -2, 0, -1], [0, 2, 0, 1]];
+            for (const [dx, dy, mx, my] of jumpDirs) {
+                const nx = x + dx, ny = y + dy;
+                const midX = x + mx, midY = y + my;
+                //跳的目标位置有活棋，中间为空（路径畅通）
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size &&
+                    midX >= 0 && midX < size && midY >= 0 && midY < size &&
+                    board[nx][ny] === 'X' && board[midX][midY] === '.') {
+                    const eyeVal = getEyeValue(nx, ny, 'X');
+                    if (eyeVal >= 2) {
+                        liveGroupEyes += eyeVal;
+                        liveGroupSize += getChainValue(nx, ny, 'X');
+                        jumpBonus = 3; //跳拓得高分，一次占两格
+                    }
                 }
             }
 
             //只有从活棋（眼值>=2）出发的扩张才考虑
             if (liveGroupEyes < 2 || liveGroupSize < 2) continue
 
-            //评分：活棋是安全基地（放大系数10），进攻价值越高越好
-            const score = (attackValue + 1) * 10 * liveGroupSize;
+            //评分：活棋安全系数×攻击价值×跳拓加分
+            const baseScore = (attackValue + 1) * 10 * liveGroupSize;
+            const score = baseScore * (jumpBonus > 0 ? jumpBonus : 1);
             if (score > highValue) {
                 highValue = score;
                 moveOptions.length = 0;
