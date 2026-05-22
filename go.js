@@ -205,6 +205,7 @@ export async function main(ns) {
                 switch (playStyle) {
                     case 0:  //Netburners
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getSecureTerritory())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getSaveChain())) break
@@ -233,6 +234,7 @@ export async function main(ns) {
                         break
                     case 1:  //The Black Hand
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getSecureTerritory())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getSaveChain())) break
@@ -260,6 +262,7 @@ export async function main(ns) {
                         break
                     case 2: //Mr. Mustacio - Slum Snakes
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getSecureTerritory())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getSaveChain())) break
@@ -287,6 +290,7 @@ export async function main(ns) {
                         break
                     case 3: //Daedalus
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getSecureTerritory())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getSaveChain())) break
@@ -314,6 +318,7 @@ export async function main(ns) {
                         break
                     case 4: //Tetrads
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getSecureTerritory())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getSaveChain())) break
@@ -341,6 +346,7 @@ export async function main(ns) {
                         break
                     case 5: //Illum
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getSecureTerritory())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getSaveChain())) break
@@ -367,6 +373,7 @@ export async function main(ns) {
                         break
                     case 6: //??????
                         if (results = await movePiece(ns, getCaptureMove())) break
+                        if (results = await movePiece(ns, getSecureTerritory())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getSaveChain())) break
@@ -673,6 +680,65 @@ export async function main(ns) {
         if (bestNonKo) return { coords: [bestNonKo.x, bestNonKo.y], msg: 'Capture: ' + bestNonKo.size };
         if (bestKo) return { coords: [bestKo.x, bestKo.y], msg: 'Capture Ko: 1' };
         return [];
+    }
+    /** @param {NS} ns
+     * @returns {{coords: number[]; msg: string;}} */
+    function getSecureTerritory() {
+        //圈地！围棋胜负的本质是围地大小，吃子是手段不是目的
+        //找围空价值最高的点：周围空位多+有己方接应+位置好（3线/4线）
+        const size = board[0].length;
+        let bestMove = null;
+        let bestScore = 0;
+        const moves = getAllValidMoves(true);
+        for (const [x, y] of moves) {
+            if (!['?', 'O'].includes(contested[x][y])) continue
+
+            //统计周围空位数量（BFS扩展找空）
+            const emptyVisited = new Set();
+            let emptyArea = 0;
+            const queue = [[x, y]];
+            emptyVisited.add(x + ',' + y);
+            for (let qi = 0; qi < queue.length && qi < 30; qi++) {
+                const [cx, cy] = queue[qi];
+                const ck = [[cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]];
+                for (const [nx, ny] of ck) {
+                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && !emptyVisited.has(nx + ',' + ny)) {
+                        emptyVisited.add(nx + ',' + ny);
+                        if (board[nx][ny] === '.') {
+                            emptyArea++;
+                            if (emptyArea < 20) queue.push([nx, ny]);
+                        }
+                    }
+                }
+            }
+            //空位少于3个（价值太低）或超过50个（太虚）
+            if (emptyArea < 3 || emptyArea > 50) continue
+
+            //检查己方棋链支持度（附近有多少己方棋子）
+            let friendlySupport = 0;
+            for (let dx = -3; dx <= 3; dx++) {
+                for (let dy = -3; dy <= 3; dy++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const nx = x + dx, ny = y + dy;
+                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
+                        friendlySupport += (4 - Math.abs(dx) - Math.abs(dy)) * 0.5; //越近权重越大
+                    }
+                }
+            }
+            if (friendlySupport < 1) continue //完全没有己方接应，孤军深入
+
+            //位置加分：3线(距边2格)=最佳，4线=次之
+            const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
+            const positionBonus = distEdge === 2 ? 3 : distEdge === 3 ? 2 : distEdge >= 4 ? 1.5 : 0.5;
+
+            //评分：空位面积×己方支持度×位置
+            const score = emptyArea * friendlySupport * positionBonus;
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove = [x, y];
+            }
+        }
+        return bestMove ? { coords: bestMove, msg: 'Territory: ' + Math.round(bestScore) } : [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
