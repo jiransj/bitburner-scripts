@@ -832,11 +832,34 @@ export async function main(ns) {
 
             //② 切断接应：落子同时碰到对方弱棋和活棋 → 切断弱棋的逃跑路线！
             if (oppWeakSize >= 2 && oppStrongSize >= 2) {
-                const score = oppWeakSize * 50; //切断价值=弱棋大小
+                const score = oppWeakSize * 50;
                 if (score > bestScore) {
                     bestScore = score;
                     bestMove = [x, y];
                     isCut = true;
+                }
+            }
+
+            //③ 逃孤子：我方小棋链(1-2子)被打吃时
+            //   如果对方吃这个子可能做眼（对方还没2只眼），必须逃！
+            if (friendlyChainSize <= 2 && friendlyChainSize >= 1 && friendlyChainLibs <= 2) {
+                //检查是否有对方棋链正要吃我们（对方1气，邻接我们）
+                let oppThreatensWithEye = false;
+                for (const [nx, ny] of checks) {
+                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O' && validLibMoves[nx][ny] === 1) {
+                        //这个对方棋链吃我们之后会不会获得眼位？
+                        const eyeVal = getEyeValue(nx, ny, 'O');
+                        //对方还没2只眼+吃我们能增加眼值→必须逃
+                        if (oppStrongSize < 2 && eyeVal > 0) oppThreatensWithEye = true;
+                    }
+                }
+                if (oppThreatensWithEye) {
+                    const score = 80 + friendlyChainLibs * 10; //逃孤！
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = [x, y];
+                        isCut = false;
+                    }
                 }
             }
         }
