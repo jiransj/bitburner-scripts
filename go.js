@@ -663,19 +663,20 @@ export async function main(ns) {
                 if (y < size - 1 && validLibMoves[x][y + 1] === 1 && board[x][y + 1] === "X") count += getChainValue(x, y + 1, "X")
                 if (count === 0 || count < savedMin) continue
 
-                //防送死检查1：落子点必须有眼位潜力，否则在边上"爬"只是送死
-                //myEyes=0意味着该点周围没有我方控制的领地，延长过去也做不出眼
-                if (myEyes < 1) {
-                    //例外：如果要救的棋链非常大（>=8子），值得继续投入
-                    let bigChain = false
-                    if (x > 0 && board[x - 1][y] === 'X' && getChainValue(x - 1, y, 'X') >= 8) bigChain = true
-                    if (x < size - 1 && board[x + 1][y] === 'X' && getChainValue(x + 1, y, 'X') >= 8) bigChain = true
-                    if (y > 0 && board[x][y - 1] === 'X' && getChainValue(x, y - 1, 'X') >= 8) bigChain = true
-                    if (y < size - 1 && board[x][y + 1] === 'X' && getChainValue(x, y + 1, 'X') >= 8) bigChain = true
-                    if (!bigChain) continue //没有眼位潜力又不是大龙 -> 放弃，不爬了
+                //判断落子后能否获得足够的气：不希望在边上无意义地"爬"
+                //如果落子在棋盘边缘（x=0/最大 或 y=0/最大），且surround<3（总气量提升很小）
+                //且要救的棋链较小（<5子），说明是在边上爬，放弃
+                const onEdge = (x === 0 || x === size - 1 || y === 0 || y === size - 1)
+                if (onEdge && surround < 3) {
+                    let smallChain = true
+                    if (x > 0 && board[x - 1][y] === 'X' && getChainValue(x - 1, y, 'X') >= 5) smallChain = false
+                    if (x < size - 1 && board[x + 1][y] === 'X' && getChainValue(x + 1, y, 'X') >= 5) smallChain = false
+                    if (y > 0 && board[x][y - 1] === 'X' && getChainValue(x, y - 1, 'X') >= 5) smallChain = false
+                    if (y < size - 1 && board[x][y + 1] === 'X' && getChainValue(x, y + 1, 'X') >= 5) smallChain = false
+                    if (smallChain) continue //边上的小棋链，爬了也是死，放弃
                 }
 
-                //防送死检查2：落子后新棋子自身必须有至少1口"独立气"
+                //防送死检查：落子后新棋子自身必须有至少1口"独立气"
                 //如果四周全是对方棋子+1气己方棋，落子=白送
                 let hasOwnLiberty = false
                 if (x > 0 && board[x - 1][y] === '.') hasOwnLiberty = true
@@ -1158,14 +1159,30 @@ export async function main(ns) {
         }
         // Choose one of the found moves at random
         const randomIndex = Math.floor(Math.random() * moveOptions.length);
-        const randomIndex2 = Math.floor(Math.random() * moveOptions2.length);
-        return moveOptions[randomIndex] ? {
+        if (moveOptions[randomIndex]) return {
             coords: moveOptions[randomIndex],
             msg: "Random Safe"
-        } : moveOptions2[randomIndex2] ? {
-            coords: moveOptions2[randomIndex2],
-            msg: "Random Unsafe"
-        } : []
+        }
+        //"Random Unsafe"路径：必须检查气，不能在角落里无气送死
+        //打乱顺序后遍历，找到第一个安全的落子
+        moveOptions2 = moveOptions2.sort(() => Math.random() - Math.random())
+        for (const [x, y] of moveOptions2) {
+            //安全检查：落子点至少有一个空邻位（有自己的气）
+            let safe = false
+            if (x > 0 && board[x - 1][y] === '.') safe = true
+            else if (x < size - 1 && board[x + 1][y] === '.') safe = true
+            else if (y > 0 && board[x][y - 1] === '.') safe = true
+            else if (y < size - 1 && board[x][y + 1] === '.') safe = true
+            //例外：能提子也算安全
+            if (!safe) {
+                if (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) safe = true
+                else if (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) safe = true
+                else if (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) safe = true
+                else if (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1) safe = true
+            }
+            if (safe) return { coords: [x, y], msg: "Random Unsafe (safe checked)" }
+        }
+        return []
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
