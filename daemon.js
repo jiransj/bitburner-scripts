@@ -45,7 +45,6 @@ const argsSchema = [
     ['share-max-utilization', 0.8], // Set to 1 if you don't care to leave any RAM free after sharing. Will use up to this much of the available RAM
 
     ['disable-script', []], // The names of scripts that you do not want run by our scheduler
-    ['disable-darknet', false], // Set to true to prevent darknet-farmer.js from being run (requires Bitburner v3.0+)
     ['run-script', []], // The names of additional scripts that you want daemon to run on home
 
     ['max-purchased-server-spend', 0.25], // Percentage of total hack income earnings we're willing to re-invest in new hosts (extra RAM in the current aug only)
@@ -205,26 +204,6 @@ export async function main(ns) {
     async function filesExist(ns, fileNames, hostname = undefined) {
         return await getNsDataThroughFile(ns, `ns.args.slice(1).map(f => ns.fileExists(f, ns.args[0]))`,
             '/Temp/files-exist.txt', [hostname ?? daemonHost, ...fileNames])
-    }
-
-    /** Check if the darknet API is available (Bitburner v3.0+) and the player has access to it.
-     * Darknet does not require any specific Source-File — it is a base-game feature in v3.0+.
-     * Access is typically gated behind having a Tor router or having connected to the darkweb. */
-    function hasDarknetAccess() {
-        try {
-            // The presence of ns.dnet confirms we're on v3.0+.
-            // Attempt a probe to verify connectivity (probe on home will fail gracefully if not on darknet).
-            if (typeof ns.dnet === 'undefined') return false;
-            // If we can probe without error, darknet is available.
-            ns.dnet.probe();
-            return true;
-        } catch (e) {
-            // If ns.dnet.probe throws, darknet may exist but not yet accessible from this server.
-            // Still allow the farmer to try — it will probe and explore when ready.
-            // We return true if ns.dnet exists (API available) even if probe fails, because the farmer
-            // will need to first connect to the darkweb before it can explore.
-            return typeof ns.dnet !== 'undefined';
-        }
     }
 
     let psCache = (/**@returns{{[serverName: string]: ProcessInfo[];}}*/() => ({}))();
@@ -394,11 +373,6 @@ export async function main(ns) {
                 name: "bladeburner.js", // Script to manage bladeburner for us. Run automatically if not disabled and bladeburner API is available
                 shouldRun: () => !options['disable-script'].includes('bladeburner.js') && reqRam(64)
                     && 7 in dictSourceFiles && bitNodeMults.BladeburnerRank != 0 // Don't run bladeburner in BN's where it can't rank up (currently just BN8)
-            },
-            {
-                name: "darknet-farmer.js", // Script to automatically farm the darknet for profit (requires Bitburner v3.0+)
-                shouldRun: () => !options['disable-darknet'] && !options['disable-script'].includes('darknet-farmer.js')
-                    && reqRam(64) && hasDarknetAccess(), // Only run if darknet API is available
             },
         ];
         // Add any additional scripts to be run provided by --run-script arguments
