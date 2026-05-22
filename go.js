@@ -1,355 +1,234 @@
-/**
- * go.js — IPvGO AI v3
- *
- * 基于游戏源码 goAI.ts 的架构重写:
- *   - 复制游戏AI的move分类系统 (capture/surround/growth/defend/eye等)
- *   - 加入游戏AI缺失的"不送死"安全检查 (newLibertyCount <= 2时跳过)
- *   - 去掉随机性, 总是选最优
- *   - 加入眼位分析增强 (游戏AI有eye检测但不够强)
- *   - 保持模式匹配 (Sphyxis)
- *
- * @author jiransj
- */
+/** go.js v4 — 精确复制 Illuminati AI 并去掉随机性 */
 
 import { getConfiguration, instanceCount } from './helpers.js'
 
 const argsSchema = [
-    ['cheats', true],
-    ['disable-cheats', false],
-    ['cheat-chance-threshold', 0.9],
-    ['logtime', false],
-    ['runOnce', false],
+    ['cheats', true], ['disable-cheats', false], ['cheat-chance-threshold', 0.9],
+    ['logtime', false], ['runOnce', false],
 ];
 
-export function autocomplete(data, args) {
-    data.flags(argsSchema);
-    return [];
-}
+export function autocomplete(data, args) { data.flags(argsSchema); return []; }
 
 /** @param {NS} ns */
 export async function main(ns) {
     let cheats = false, cheatChanceThreshold = 1.0, logtime = false, runOnce = true;
     let turn = 0, totalGames = 0, totalWins = 0;
-    let recentCaptureZones = new Map();
-    let prevBoardStr = ''; // 用于检测提子
-
     const opponent = ["Netburners","Slum Snakes","The Black Hand","Tetrads","Daedalus","Illuminati"];
     const opponent2 = [...opponent, "????????????"];
 
-    // ── 工具函数 ──
-
-    function getValidMoveList(ns) {
-        const grid = ns.go.analysis.getValidMoves();
-        const moves = [];
-        for (let x = 0; x < grid.length; x++)
-            for (let y = 0; y < grid[x].length; y++)
-                if (grid[x][y]) moves.push([x, y]);
-        return moves;
+    function getValidMoves(ns) {
+        const g = ns.go.analysis.getValidMoves();
+        const r = [];
+        for (let x = 0; x < g.length; x++) for (let y = 0; y < g[x].length; y++) if (g[x][y]) r.push([x, y]);
+        return r;
     }
 
-    /** 模拟落子, 返回新棋盘和落子后的气数 */
-    function simulateMove(board, x, y, color) {
-        if (board[x][y] !== '.') return null;
-        const nb = board.map(r => r.split(''));
-        nb[x][y] = color;
-        // 计算气数
-        let libs = 0;
-        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-            const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<board.length && ny>=0 && ny<board[0].length && nb[nx][ny] === '.') libs++;
-        }
-        return { board: nb.map(r => r.join('')), libs };
+    function getKomi(o) {
+        return o === 'Illuminati' ? 7.5 : o === 'Daedalus' || o === 'Tetrads' ? 5.5 :
+               o === 'Slum Snakes' || o === 'The Black Hand' ? 3.5 : o === 'Netburners' ? 1.5 : 5.5;
     }
 
-    function getKomi(opponent) {
-        switch(opponent) {
-            case 'Illuminati': return 7.5;
-            case 'Daedalus': case 'Tetrads': return 5.5;
-            case 'Slum Snakes': case 'The Black Hand': return 3.5;
-            case 'Netburners': return 1.5;
-            default: return 5.5;
-        }
-    }
-
-    function quickScore(board) {
-        let s = 0;
-        for (const row of board) for (const ch of row) { if (ch==='X') s++; else if (ch==='O') s--; }
-        return s;
-    }
-
-    // ── 核心AI: 基于游戏源码 goAI.ts ──
+    function score(b) { let s = 0; for (const r of b) for (const c of r) { if (c==='X') s++; else if (c==='O') s--; } return s; }
 
     /**
-     * 评估在(x,y)落子后的结果
-     * @returns {{ libs: number, capturable: boolean, oppAtari: number, safe: boolean }}
+     * Illuminati AI 决策链 (去随机):
+     * 1.capture 2.defendCapture 3.eyeMove 4.surround(1气)
+     * 5.eyeBlock 6.corner 7.jump 8.growth 9.expansion
      */
-    function evaluateMove(board, x, y, color) {
-        const opp = color === 'X' ? 'O' : 'X';
-        const size = board.length;
-        const sim = simulateMove(board, x, y, color);
-        if (!sim) return { libs: 0, capturable: false, oppAtari: 0, safe: false };
+    function getBestMove(board, vm) {
+        const S = board.length, me = 'X', opp = 'O';
+        const isIn = (x,y) => x>=0 && x<S && y>=0 && y<S;
+        const dir4 = [[-1,0],[1,0],[0,-1],[0,1]];
 
-        const nb = sim.board;
-        let myLibs = sim.libs;
-
-        // 检查能否提子
-        let captured = 0;
-        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-            const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && nb[nx][ny] === opp) {
-                // 检查这个对手子的气
-                let oppLibs = 0;
-                for (const [dx2, dy2] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-                    const nnx = nx+dx2, nny = ny+dy2;
-                    if (nnx>=0 && nnx<size && nny>=0 && nny<size && nb[nnx][nny] === '.') oppLibs++;
-                }
-                if (oppLibs === 0) captured++;
-            }
-        }
-
-        // 计算打吃数量
-        let oppAtari = 0;
-        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-            const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) {
-                let oppLibs = 0;
-                for (const [dx2, dy2] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-                    const nnx = nx+dx2, nny = ny+dy2;
-                    if (nnx>=0 && nnx<size && nny>=0 && nny<size && board[nnx][nny] === '.') oppLibs++;
-                }
-                if (oppLibs === 1) oppAtari++;
-            }
-        }
-
-        // 安全判断: 落子后不被立刻提掉
-        const safe = captured > 0 || myLibs >= 2;
-
-        return { libs: myLibs, capturable: captured > 0, oppAtari, safe };
-    }
-
-    /**
-     * 核心选点函数 (基于游戏AI getMoveOptions 但去随机化)
-     */
-    function getBestMove(board, validMoveList) {
-        const size = board.length;
-        const me = 'X', opp = 'O';
-        const candidates = [];
-        const stones = board.join('');
-
-        // --- 1. 提子 (capture) ---
-        for (const [x, y] of validMoveList) {
-            const ev = evaluateMove(board, x, y, me);
-            if (ev.capturable) {
-                candidates.push({x, y, score: 1000 + ev.oppAtari * 10, source: 'capture'});
-            }
-        }
-
-        // --- 2. 打吃 (atari/surround) ---
-        // 安全规则: 落子后自己气数>=2 或 能提子
-        for (const [x, y] of validMoveList) {
-            if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const ev = evaluateMove(board, x, y, me);
-            if (!ev.safe) continue; // 🚫 不安全! 会被提!
-            if (ev.oppAtari >= 1) {
-                // 检查对手这口气是否安全(不会被反提)
-                candidates.push({x, y, score: 200 + ev.oppAtari * 30, source: 'atari'});
-            }
-        }
-
-        // --- 3. 救子 (defend) ---
-        // 检查自己的子是否被打吃, 能否通过这个位置增加气数
-        for (const [x, y] of validMoveList) {
-            if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const ev = evaluateMove(board, x, y, me);
-            if (!ev.safe) continue;
-
-            // 检查周围有没有自己被打吃的子
-            let savesOwnAtari = false;
-            for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        // 1. capture 提子
+        for (const [x, y] of vm) {
+            for (const [dx, dy] of dir4) {
                 const nx = x+dx, ny = y+dy;
-                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === me) {
-                    let ownLibs = 0;
-                    for (const [dx2, dy2] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-                        const nnx = nx+dx2, nny = ny+dy2;
-                        if (nnx>=0 && nnx<size && nny>=0 && nny<size && board[nnx][nny] === '.') ownLibs++;
+                if (!isIn(nx,ny) || board[nx][ny] !== opp) continue;
+                let libs = 0;
+                for (const [dx2, dy2] of dir4) {
+                    const nn = nx+dx2, ny2 = ny+dy2;
+                    if (isIn(nn,ny2) && board[nn][ny2] === '.') libs++;
+                }
+                if (libs === 0) return {x, y, src:'c'};
+            }
+        }
+
+        // 2. defendCapture 救子 (1气→>1气)
+        for (const [x, y] of vm) {
+            let myLibs = 0;
+            for (const [dx, dy] of dir4) {
+                const nx = x+dx, ny = y+dy;
+                if (isIn(nx,ny) && board[nx][ny] === '.') myLibs++;
+            }
+            if (myLibs < 2) continue;
+            for (const [dx, dy] of dir4) {
+                const nx = x+dx, ny = y+dy;
+                if (!isIn(nx,ny) || board[nx][ny] !== me) continue;
+                let own = 0;
+                for (const [dx2, dy2] of dir4) {
+                    const nn = nx+dx2, ny2 = ny+dy2;
+                    if (isIn(nn,ny2) && board[nn][ny2] === '.') own++;
+                }
+                if (own === 1) return {x, y, src:'d'};
+            }
+        }
+
+        // 3. eyeMove 做眼
+        for (const [x, y] of vm) {
+            let ok = true;
+            for (const [dx, dy] of dir4) {
+                const nx = x+dx, ny = y+dy;
+                if (!isIn(nx,ny) || board[nx][ny]==='#') continue;
+                if (board[nx][ny] !== me) { ok = false; break; }
+            }
+            if (ok) return {x, y, src:'e'};
+        }
+
+        // 4. surround 打吃 (紧到1气)
+        for (const [x, y] of vm) {
+            let safe = false, atari = 0;
+            for (const [dx, dy] of dir4) {
+                const nx = x+dx, ny = y+dy;
+                if (!isIn(nx,ny)) continue;
+                if (board[nx][ny] === '.') safe = true;
+                if (board[nx][ny] === opp) {
+                    let libs = 0;
+                    for (const [dx2, dy2] of dir4) {
+                        const nn = nx+dx2, ny2 = ny+dy2;
+                        if (isIn(nn,ny2) && board[nn][ny2] === '.') libs++;
                     }
-                    if (ownLibs === 1) savesOwnAtari = true;
+                    if (libs === 1) atari++;
                 }
             }
-            if (savesOwnAtari) {
-                candidates.push({x, y, score: 150, source: 'defend'});
-            }
+            if (safe && atari > 0) return {x, y, src:'a'};
         }
 
-        // --- 4. 做眼/破眼 (eye) ---
-        // 简单眼检测: 一个空点如果所有非墙邻居都是同色, 就是眼
-        for (const [x, y] of validMoveList) {
-            if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const ev = evaluateMove(board, x, y, me);
-            if (!ev.safe) continue;
-
-            // 检查是不是对手的眼 (下在这里可以破眼)
-            let oppEye = true, myEye = true;
-            for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        // 5. eyeBlock 破眼
+        for (const [x, y] of vm) {
+            let ok = true;
+            for (const [dx, dy] of dir4) {
                 const nx = x+dx, ny = y+dy;
-                if (nx<0||nx>=size||ny<0||ny>=size||board[nx][ny]==='#') continue;
-                if (board[nx][ny] !== 'O') oppEye = false;
-                if (board[nx][ny] !== 'X') myEye = false;
+                if (!isIn(nx,ny) || board[nx][ny]==='#') continue;
+                if (board[nx][ny] !== opp) { ok = false; break; }
             }
-            if (oppEye) candidates.push({x, y, score: 180, source: 'eyeBlock'}); // 破眼!
-            if (myEye) candidates.push({x, y, score: 100, source: 'eyeMake'});  // 做眼
+            if (ok) return {x, y, src:'b'};
         }
 
-        // --- 5. 跳/growth (增加自己气数) ---
-        for (const [x, y] of validMoveList) {
-            if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const ev = evaluateMove(board, x, y, me);
-            if (!ev.safe) continue;
+        // 6. corner 占角
+        const corners = [[2,2],[2,S-3],[S-3,2],[S-3,S-3]];
+        for (const [cx, cy] of corners) {
+            if (!vm.some(([x,y]) => x===cx && y===cy)) continue;
+            let open = true;
+            for (let dx=-2; dx<=2 && open; dx++)
+                for (let dy=-2; dy<=2 && open; dy++) {
+                    const nx=cx+dx, ny=cy+dy;
+                    if (isIn(nx,ny) && board[nx][ny]!=='.') open=false;
+                }
+            if (open) return {x: cx, y: cy, src:'r'};
+        }
 
-            // 检查是否与自己的子形成跳(空一格)
-            let jumpScore = 0;
+        // 7. jump 跳/桂马
+        let bestJ = null, bestJS = 0;
+        for (const [x, y] of vm) {
+            let s = 0;
             for (const [dx, dy] of [[2,0],[-2,0],[0,2],[0,-2],[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]]) {
                 const nx = x+dx, ny = y+dy;
-                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === me) {
-                    jumpScore += 3;
-                    // 检查中间是否通畅
-                    const mx = x+dx/2, my = y+dy/2;
-                    const blocked = Number.isInteger(dx/2) && Number.isInteger(dy/2) &&
-                        mx>=0 && mx<size && my>=0 && my<size && board[mx][my] !== '.';
-                    if (!blocked) jumpScore += (dx*dy !== 0) ? 4 : 3; // 桂马或跳
-                }
+                if (isIn(nx,ny) && board[nx][ny] === me) s += (dx*dy !== 0 && Math.abs(dx)===Math.abs(dy)) ? 7 : 5;
             }
-            if (jumpScore > 0) {
-                candidates.push({x, y, score: 80 + jumpScore, source: 'jump'});
-            }
+            if (s > bestJS) { bestJS = s; bestJ = {x, y, src:'j'}; }
         }
+        if (bestJS >= 6) return bestJ;
 
-        // --- 6. 拆边/扩张 (expansion) ---
-        for (const [x, y] of validMoveList) {
-            if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const ev = evaluateMove(board, x, y, me);
-            if (!ev.safe) continue;
-            if (ev.libs < 2) continue;
-
-            // 计算到最近墙壁的距离
-            let distToWall = Math.min(x, y, size-1-x, size-1-y);
-            for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
+        // 8. growth 扩张(安全+连接)
+        let bestG = null, bestGS = -1;
+        for (const [x, y] of vm) {
+            let libs = 0, conn = 0;
+            for (const [dx, dy] of dir4) {
                 const nx = x+dx, ny = y+dy;
-                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === '#')
-                    distToWall = Math.min(distToWall, Math.abs(dx)+Math.abs(dy));
+                if (!isIn(nx,ny)) continue;
+                if (board[nx][ny] === '.') libs++;
+                if (board[nx][ny] === me) conn++;
             }
-            if (distToWall < 2) continue; // 贴墙不走
+            if (libs < 2) continue;
+            const s = libs + conn * 3;
+            if (s > bestGS) { bestGS = s; bestG = {x, y, src:'g'}; }
+        }
+        if (bestG) return bestG;
 
-            // 周围空旷加分
+        // 9. expansion 拆边
+        let bestE = null, bestES = -1;
+        for (const [x, y] of vm) {
+            let dw = Math.min(x, y, S-1-x, S-1-y);
+            for (let dx=-2; dx<=2; dx++) for (let dy=-2; dy<=2; dy++) {
+                const nx=x+dx, ny=y+dy;
+                if (isIn(nx,ny) && board[nx][ny]==='#') dw = Math.min(dw, Math.abs(dx)+Math.abs(dy));
+            }
+            if (dw < 2) continue;
             let open = 0;
-            for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
-                if (dx===0 && dy===0) continue;
-                const nx = x+dx, ny = y+dy;
-                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === '.') open++;
+            for (let dx=-2; dx<=2; dx++) for (let dy=-2; dy<=2; dy++) {
+                if (dx===0&&dy===0) continue;
+                const nx=x+dx, ny=y+dy;
+                if (isIn(nx,ny) && board[nx][ny]==='.') open++;
             }
-            const edgeBonus = distToWall === 2 ? 12 : distToWall === 3 ? 8 : 2;
-            candidates.push({x, y, score: 40 + open + edgeBonus, source: 'expand'});
+            const s = open + (dw===2 ? 8 : dw===3 ? 5 : 1);
+            if (s > bestES) { bestES = s; bestE = {x, y, src:'x'}; }
         }
+        if (bestE) return bestE;
 
-        // --- 7. 后备: 走空旷的角落 ---
-        if (candidates.length === 0) {
-            for (const [x, y] of validMoveList) {
-                const ev = evaluateMove(board, x, y, me);
-                if (!ev.safe) continue;
-
-                let open = 0;
-                for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
-                    if (dx===0 && dy===0) continue;
-                    const nx = x+dx, ny = y+dy;
-                    if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === '.') open++;
-                }
-                candidates.push({x, y, score: open, source: 'fallback'});
+        // 10. fallback: 随便走个安全位置
+        for (const [x, y] of vm) {
+            for (const [dx, dy] of dir4) {
+                if (isIn(x+dx,y+dy) && board[x+dx][y+dy] === '.') return {x, y, src:'f'};
             }
         }
-
-        // 排序取最佳
-        candidates.sort((a, b) => b.score - a.score);
-        return candidates.length > 0 ? candidates[0] : null;
+        return null;
     }
-
-    // ── 主循环 ──
 
     await start();
-
     async function start() {
-        const runOptions = getConfiguration(ns, argsSchema);
-        if (!runOptions || (await instanceCount(ns)) > 1) return;
-
-        logtime = runOptions.logtime;
-        runOnce = runOptions.runOnce;
-        cheats = runOptions.cheats && !runOptions['disable-cheats'];
-        cheatChanceThreshold = runOptions['cheat-chance-threshold'];
-
-        ns.disableLog("go.makeMove");
-        ns.disableLog("go.passTurn");
-        ns.disableLog("sleep");
+        const ro = getConfiguration(ns, argsSchema);
+        if (!ro || (await instanceCount(ns)) > 1) return;
+        logtime = ro.logtime; runOnce = ro.runOnce;
+        cheats = ro.cheats && !ro['disable-cheats']; cheatChanceThreshold = ro['cheat-chance-threshold'];
+        ns.disableLog("go.makeMove"); ns.disableLog("go.passTurn"); ns.disableLog("sleep");
 
         while (true) {
-            turn = 0;
-            const opp = ns.go.getOpponent();
-            ns.print(`INFO: 对阵 ${opp}`);
-            const startTime = performance.now();
-
+            turn = 0; const opp = ns.go.getOpponent(); ns.print(`INFO: vs ${opp}`);
+            const st = performance.now();
             while (true) {
+                if (ns.go.getGameState().currentPlayer === 'None') { await end(ns, opp, st); break; }
                 turn++;
-
-                // 检查游戏是否结束
-                if (ns.go.getGameState().currentPlayer === 'None') {
-                    await handleGameOver(ns, opp, startTime);
-                    break;
-                }
-
                 const board = ns.go.getBoardState();
-                const validMoves = getValidMoveList(ns);
-
-                // 作弊 (BN14.2)
+                const vm = getValidMoves(ns);
                 if (cheats && turn % 5 === 0) {
-                    try {
-                        if (ns.go.cheat.getCheatSuccessChance() > cheatChanceThreshold) {
-                            if (ns.go.cheat.getCheatCount() > 0 && quickScore(board) - getKomi(opp) < -5) {
-                                ns.go.cheat.removeRouter();
-                                continue;
-                            }
-                            if (ns.go.cheat.getCheatSuccessChance() > 0.95) {
-                                ns.go.cheat.playTwoMoves();
-                                continue;
-                            }
+                    try { const cc = ns.go.cheat.getCheatSuccessChance();
+                        if (cc > cheatChanceThreshold) {
+                            if (ns.go.cheat.getCheatCount() > 0 && score(board)-getKomi(opp) < -5) { ns.go.cheat.removeRouter(); continue; }
+                            if (cc > 0.95) { ns.go.cheat.playTwoMoves(); continue; }
                         }
-                    } catch (e) {}
+                    } catch(e) {}
                 }
-
-                // 选最佳落子
-                const best = getBestMove(board, validMoves);
-
-                let result;
-                if (best) {
-                    result = await ns.go.makeMove(best.x, best.y);
-                    if (logtime) ns.print(`[${turn}] (${best.x},${best.y}) src:${best.source} 目:${(quickScore(board)-getKomi(opp)).toFixed(1)}`);
+                const move = getBestMove(board, vm);
+                let r;
+                if (move) {
+                    if (logtime) ns.print(`[${turn}] (${move.x},${move.y}) ${move.src}`);
+                    r = await ns.go.makeMove(move.x, move.y);
                 } else {
                     if (logtime) ns.print(`[${turn}] pass`);
-                    try { result = await ns.go.passTurn(); } catch { await handleGameOver(ns, opp, startTime); break; }
+                    try { r = await ns.go.passTurn(); } catch { await end(ns, opp, st); break; }
                 }
-
-                if (result && result.type === "gameOver") {
-                    await handleGameOver(ns, opp, startTime);
-                    break;
-                }
+                if (r && r.type === "gameOver") { await end(ns, opp, st); break; }
             }
         }
     }
 
-    async function handleGameOver(ns, opp, startTime) {
+    async function end(ns, opp, st) {
         totalGames++;
-        const score = quickScore(ns.go.getBoardState()) - getKomi(opp);
-        const isWin = score > 0;
-        if (isWin) totalWins++;
-        const elapsed = ((performance.now()-startTime)/1000).toFixed(1);
-        ns.tprint(`[${totalGames}] ${opp} ${isWin?'✅':'❌'} 目:${score.toFixed(1)} ${elapsed}s 胜率:${(totalWins/totalGames*100).toFixed(0)}%`);
+        const s = score(ns.go.getBoardState()) - getKomi(opp);
+        const w = s > 0; if (w) totalWins++;
+        const t = ((performance.now()-st)/1000).toFixed(1);
+        ns.tprint(`[${totalGames}] ${opp} ${w?'✅':'❌'} ${s.toFixed(1)}目 ${t}s 胜率:${(totalWins/totalGames*100).toFixed(0)}%`);
         if (runOnce) ns.exit();
         try { ns.go.resetBoardState(opponent2[Math.floor(Math.random()*opponent2.length)], 13); }
         catch { ns.go.resetBoardState(opponent[Math.floor(Math.random()*opponent.length)], 13); }
