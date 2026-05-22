@@ -215,7 +215,6 @@ export async function main(ns) {
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getSqueezeEyes())) break
                         if (results = await movePiece(ns, getSystematicSurround())) break
@@ -228,6 +227,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false, 1))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
+                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
@@ -244,7 +244,6 @@ export async function main(ns) {
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getSqueezeEyes())) break
                         if (results = await movePiece(ns, getSystematicSurround())) break
@@ -256,6 +255,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false, 1))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
+                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
@@ -272,7 +272,6 @@ export async function main(ns) {
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getSqueezeEyes())) break
                         if (results = await movePiece(ns, getSystematicSurround())) break
@@ -284,6 +283,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false, 1))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
+                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
@@ -300,7 +300,6 @@ export async function main(ns) {
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getSqueezeEyes())) break
                         if (results = await movePiece(ns, getSystematicSurround())) break
@@ -312,6 +311,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false, 1))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
+                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
@@ -328,7 +328,6 @@ export async function main(ns) {
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getSqueezeEyes())) break
                         if (results = await movePiece(ns, getSystematicSurround())) break
@@ -340,6 +339,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
+                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat(),)) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
@@ -356,7 +356,6 @@ export async function main(ns) {
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getSqueezeEyes())) break
                         if (results = await movePiece(ns, getSystematicSurround())) break
@@ -367,6 +366,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
+                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
@@ -383,7 +383,6 @@ export async function main(ns) {
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getSqueezeEyes())) break
                         if (results = await movePiece(ns, getSystematicSurround())) break
@@ -395,6 +394,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
+                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
