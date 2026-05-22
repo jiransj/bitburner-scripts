@@ -119,107 +119,185 @@ export async function main(ns) {
     }
 
     // ── 评分系统 ──
-    // 注意: 评分只用于在模式匹配候选之间做选择, 以及没有模式匹配时的后备
-    // 不鼓励"贴近对手送子"——贴近对手只有在能提子或救子时才加分
-    function scoreMove(board, x, y, chainList, libMap, size, isStrongOpponent) {
+    // 基于围棋基本战术原则:
+    //
+    // 【布局】金角 → 银边 → 草肚皮
+    //   开局优先占角(3-3,4-4,3-4点), 然后拆边, 最后中腹
+    //
+    // 【好形】跳(ikken tobi) > 桂马(knight move) > 大跳 > 贴
+    //   跳空一格是最有效率的棋形,兼顾速度和安全
+    //   桂马(日字)灵活, 适合攻击和防守
+    //   直接贴(紧挨)效率低, 只在需要切断或紧气时才用
+    //
+    // 【坏形】空三角 > 团子 > 愚形
+    //   叠棋(4个以上自己的子挤在一起)是效率最低的棋形
+    //   直线长条也是低效形
+    //
+    // 【攻防】攻从厚势, 不追弱棋
+    //   贴近对手只有在能提子或救子时才是有利的
+    //   空旷地带发展潜力 > 局部纠缠
+    //
+    function scoreMove(board, x, y, chainList, libMap, size, isStrongOpponent, gamePhase = 'midgame') {
         const me = 'X', opp = 'O';
         let score = 0;
-        const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
 
-        // 1. ⭐ 打吃提子 (最优先)
+        // ════════════════════════════════════════════
+        //  1. 死活优先 (围棋第一原则)
+        // ════════════════════════════════════════════
+
+        // 1a. ⭐ 打吃提子 (能提子就是好棋)
         for (const chain of chainList) {
             if (chain.color !== opp) continue;
             const libs = libMap.get(chain.id) ?? 99;
-            if (libs > 1) continue; // 只有1气才考虑
-            const isAdj = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
-            if (isAdj) score += 40;
+            if (libs > 1) continue;
+            const canAtari = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
+            if (canAtari) {
+                if (libs === 1) return 200; // 直接提子!
+                score += 40;
+            }
         }
 
-        // 2. ⭐ 救子 (自己的子被打吃)
+        // 1b. ⭐ 救子 (自己的子被打吃)
         for (const chain of chainList) {
             if (chain.color !== me) continue;
             const libs = libMap.get(chain.id) ?? 99;
             if (libs > 1) continue;
-            const isAdj = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
-            if (isAdj) score += 35;
+            const canSave = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
+            if (canSave) score += 35;
         }
 
-        // 3. 气数: 落子后至少要有气 (不能送死)
+        // 1c. 🚫 送死检测: 落子后自己没气了且不能提子 = 绝对不走
         let libsAfter = 0;
-        for (const [dx, dy] of dirs) {
+        let canCapture = false;
+        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
             const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === '.') libsAfter++;
+            if (nx>=0 && nx<size && ny>=0 && ny<size) {
+                if (board[nx][ny] === '.') libsAfter++;
+                if (board[nx][ny] === opp) {
+                    for (const chain of chainList) {
+                        if (chain.color !== opp) continue;
+                        if ((libMap.get(chain.id)??99) === 1 &&
+                            chain.stones.some(([sx,sy]) => sx===nx && sy===ny))
+                            canCapture = true;
+                    }
+                }
+            }
         }
-        if (libsAfter === 0) return -999; // 送死, 绝对不走
-        score += libsAfter * 2;
+        if (libsAfter === 0 && !canCapture) return -999;
 
-        // 4. 👎 叠棋惩罚: 贴着2个以上自己的子是叠棋 (除了做眼)
-        let connects = 0;
-        const dirs8 = [[-1,0],[1,0],[0,-1],[0,1],[1,1],[1,-1],[-1,1],[-1,-1]];
-        for (const [dx, dy] of dirs8) {
-            const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === me) connects++;
-        }
-        if (connects >= 4) score -= 12;  // 叠了4个以上 = 效率低
-        else if (connects >= 3) score -= 5;
+        // ════════════════════════════════════════════
+        //  2. 棋形效率 (好形加分, 坏形减分)
+        // ════════════════════════════════════════════
 
-        // 5. 👍 跳 (2格距离) 和 大跳/桂马 (3格距离): 高效棋形
-        let jumpBonus = 0;
-        const jumpDirs = [[2,0],[-2,0],[0,2],[0,-2],[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]];
+        // 2a. 👍 跳 (一格空): 最有效率的棋形, 兼顾速度和安全
+        let shapeScore = 0;
         for (const chain of chainList) {
             if (chain.color !== me) continue;
             for (const [sx, sy] of chain.stones) {
-                const dist = Math.abs(x-sx) + Math.abs(y-sy);
                 const dx = Math.abs(x-sx), dy = Math.abs(y-sy);
-                if (dist === 2 && board[sx][sy] !== '.') jumpBonus += 6;  // 一格跳
-                else if ((dx===2 && dy===1) || (dx===1 && dy===2)) jumpBonus += 5; // 桂马
-                else if (dist === 3 && dx !== 0 && dy !== 0) jumpBonus += 3; // 大跳
+                if (dx+dy === 2 && dx !== 0 && dy !== 0) shapeScore += 7;  // ✓ 跳 (对角空一格)
+                else if ((dx===2 && dy===1) || (dx===1 && dy===2)) shapeScore += 6; // ✓ 桂马
+                else if (dx+dy === 2) shapeScore += 4;  // 直线跳一格 (还行)
+                else if (dx+dy === 3 && dx !== 0 && dy !== 0) shapeScore += 3; // 大跳
             }
         }
-        score += Math.min(jumpBonus, 12); // 上限12
+        score += Math.min(shapeScore, 14);
 
-        // 6. 👍 拆边: 沿边线方向有开阔空间
+        // 2b. 👎 叠棋惩罚: 挤成一团是效率最低的愚形
+        let crowded = 0;
+        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
+            const nx = x+dx, ny = y+dy;
+            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === me) crowded++;
+        }
+        if (crowded >= 5) score -= 18;   // 团成一团! 极差
+        else if (crowded >= 4) score -= 10;
+        else if (crowded >= 3) score -= 4;
+
+        // 2c. 👎 空三角/直线: 检查是否形成低效直线形
+        // 检查水平/垂直方向是否有2个以上自己的子排成线
+        for (const [dx, dy] of [[1,0],[0,1]]) {
+            let inline = 0;
+            for (let step = 1; step <= 3; step++) {
+                const nx = x + dx*step, ny = y + dy*step;
+                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === me) inline++;
+                else break;
+            }
+            for (let step = 1; step <= 3; step++) {
+                const nx = x - dx*step, ny = y - dy*step;
+                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === me) inline++;
+                else break;
+            }
+            if (inline >= 3) score -= 8;  // 三子直线 = 效率低
+            else if (inline >= 4) score -= 14; // 四子直线 = 极差
+        }
+
+        // ════════════════════════════════════════════
+        //  3. 布局原则 (金角 → 银边 → 草肚皮)
+        // ════════════════════════════════════════════
+
         const edgeDist = Math.min(x, y, size-1-x, size-1-y);
+
+        // 3a. 角部价值: 开局占角最重要
+        if (gamePhase === 'opening') {
+            // 星位(4-4), 小目(3-4), 三三(3-3) 都是好点
+            if (edgeDist === 2 || edgeDist === 3) {
+                // 检查是否真的是角 (x和y都靠近角)
+                const isCornerArea = (x < size/2 && y < size/2) || (x >= size/2 && y < size/2) ||
+                                     (x < size/2 && y >= size/2) || (x >= size/2 && y >= size/2);
+                if (isCornerArea) score += 15; // 占角!
+            }
+        }
+
+        // 3b. 边缘价值
+        if (edgeDist === 0) score -= 10;   // 一线: 坏棋 (除非特殊情形)
+        else if (edgeDist === 1) score += 7;   // 二线: 好
+        else if (edgeDist === 2) score += 12;  // 三线: 最佳
+        else if (edgeDist === 3) score += 6;   // 四线: 好
+        else if (edgeDist === 4) score += 2;   // 五线: 可考虑
+        // 中腹不加分也不减分
+
+        // 3c. 拆边: 沿边发展领地
         if (edgeDist <= 2) {
             let openSides = 0;
             for (const step of [-2, 2, -3, 3]) {
-                if (Math.abs(step) === 2) {
-                    if (x+step>=0 && x+step<size && board[x+step][y]==='.') openSides+=2;
-                    if (y+step>=0 && y+step<size && board[x][y+step]==='.') openSides+=2;
-                } else {
-                    if (x+step>=0 && x+step<size && board[x+step][y]==='.') openSides++;
-                    if (y+step>=0 && y+step<size && board[x][y+step]==='.') openSides++;
-                }
+                const sx = x+step, sy = y+step;
+                if (sx>=0 && sx<size && board[sx][y]==='.') openSides += Math.abs(step) === 2 ? 2 : 1;
+                if (sy>=0 && sy<size && board[x][sy]==='.') openSides += Math.abs(step) === 2 ? 2 : 1;
             }
             score += Math.min(openSides, 10);
         }
 
-        // 7. 📐 边缘价值 (围棋金角银边草肚皮)
-        if (edgeDist === 0) score -= 8;   // 一线: 坏棋
-        else if (edgeDist === 1) score += 8;  // 二线: 好
-        else if (edgeDist === 2) score += 10; // 三线: 最好
-        else if (edgeDist === 3) score += 5;  // 四线: 不错
-        else score += 1;                     // 中腹
+        // ════════════════════════════════════════════
+        //  4. 攻防判断
+        // ════════════════════════════════════════════
 
-        // 8. 🔪 切断 (只在有明确目标时加分)
+        // 4a. 🔪 切断 (切断对手联络)
         let cuts = 0;
         for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
             const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === 'O') cuts++;
+            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) cuts++;
         }
-        if (cuts >= 2) score += 6;  // 切断两个对手子的连接
+        if (cuts >= 2) score += 6;  // 切断两子
         else if (cuts === 1) score += 2;
 
-        // 9. 👎 贴近对手太多是坏棋
+        // 4b. 👎 贴近对手太多是恶手 (紧贴不抢空)
         let oppAdj = 0;
         for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
             const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === 'O') oppAdj++;
+            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) oppAdj++;
         }
-        if (oppAdj >= 3) score -= 12;
-        else if (oppAdj >= 2 && !chainList.some(c => c.color==='O' && (libMap.get(c.id)??99)<=1)) score -= 6;
+        if (oppAdj >= 3) score -= 15;
+        else if (oppAdj >= 2) {
+            // 如果对手的子气多(安全), 贴着是浪费
+            const oppSafe = chainList.some(c => c.color===opp && (libMap.get(c.id)??99)>=3);
+            if (oppSafe) score -= 8;
+        }
 
-        // 10. 空旷地带加分 (远离双方棋子)
+        // ════════════════════════════════════════════
+        //  5. 全局判断
+        // ════════════════════════════════════════════
+
+        // 5a. 空旷地带: 周围棋子少=发展潜力大
         let stonesInRadius = 0;
         for (let dx = -3; dx <= 3; dx++)
             for (let dy = -3; dy <= 3; dy++) {
@@ -227,12 +305,12 @@ export async function main(ns) {
                 const nx = x+dx, ny = y+dy;
                 if (nx>=0 && nx<size && ny>=0 && ny<size) {
                     if (board[nx][ny] === 'O') stonesInRadius += 2;
-                    else if (board[nx][ny] === 'X') stonesInRadius += 1;
+                    else if (board[nx][ny] === 'X') stonesInRadius += 1.5;
                 }
             }
-        score += Math.max(0, 20 - stonesInRadius) * 0.8;
+        score += Math.max(0, 22 - stonesInRadius) * 0.6;
 
-        // 11. 靠近自己大龙 (协作)
+        // 5b. 靠近自己大龙 (协同作战, 但不是贴)
         for (const chain of chainList) {
             if (chain.color !== 'X' || chain.stones.length < 3) continue;
             const minDist = Math.min(...chain.stones.map(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy)));
@@ -452,11 +530,21 @@ export async function main(ns) {
     }
 
     // ── 主决策 ──
+    function getGamePhase(board) {
+        let stones = 0;
+        for (const row of board) for (const ch of row) if (ch === 'X' || ch === 'O') stones++;
+        const total = board.length * board[0].length;
+        if (stones <= total * 0.1) return 'opening';
+        if (stones >= total * 0.5) return 'endgame';
+        return 'midgame';
+    }
+
     function selectBestMove(ns, board, validMoves, chainList, libMap, size, testBoard, contested, opponent) {
         const isStrong = opponent === 'Illuminati' || opponent === '????????????';
         const komi = getKomi(opponent);
+        const gamePhase = getGamePhase(board);
 
-        // 开局
+        // 开局紧急占角
         if (validMoves.length > 0 && validMoves.length >= size*size-5) {
             const opening = getOpeningMove(validMoves, size);
             if (opening) return opening;
@@ -467,7 +555,7 @@ export async function main(ns) {
 
         // 只对候选位置评分 (不遍历所有合法位置, 避免乱走)
         for (const c of candidates) {
-            const s = scoreMove(board, c.x, c.y, chainList, libMap, size, isStrong);
+            const s = scoreMove(board, c.x, c.y, chainList, libMap, size, isStrong, gamePhase);
             scored.push({x: c.x, y: c.y, score: s + c.pri});
         }
 
