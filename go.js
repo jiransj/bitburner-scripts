@@ -827,49 +827,73 @@ export async function main(ns) {
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
     function getKillOrReduce() {
-        //判断对方棋块死活，采取不同策略：
-        //  ① 做不出两只眼 → 杀！紧气包围
-        //  ② 已经做出两只眼 → 不浪费子力去杀，限制其圈地
-        const moveOptions = [];
+        //从AI抄的getEyeBlockingMove+getSurroundMove混合策略
+        //① 先找对方"唯一做两只眼的点"→堵住！AI最高优
+        //② 找不到则找眼值<2的弱棋→杀
+        //③ 已活棋→限制圈地（评分=1，几乎不选）
+        const killMoves = [];
+        const blockMoves = []; //堵眼候选
         const size = board[0].length;
-        let highScore = 0;
-        let killMode = false; //在外面声明，供return使用
         const moves = getAllValidMoves(true);
         for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
+            if (!['?', 'O'].includes(contested[x][y])) continue
 
-            let oppEyesNearby = 0;
-            let oppChainSize = 0;
+            let oppSize = 0, oppEyes = 0;
+            const seenChains = new Set();
             const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
             for (const [nx, ny] of checks) {
                 if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                    oppChainSize += getChainValue(nx, ny, 'O');
-                    oppEyesNearby += getEyeValue(nx, ny, 'O');
+                    const cid = chains[nx][ny];
+                    if (!seenChains.has(cid)) {
+                        seenChains.add(cid);
+                        oppSize += getChainValue(nx, ny, 'O');
+                        oppEyes += getEyeValue(nx, ny, 'O');
+                    }
                 }
             }
-            if (oppChainSize === 0) continue;
+            if (oppSize === 0) continue;
 
-            let score;
-            if (oppEyesNearby < 2) {
-                //做不出两只眼→可以杀！紧气包围，优先杀大棋
-                score = oppChainSize * oppChainSize * 10;
-                if (score > highScore) killMode = true;
+            //AI关键：模拟落子后对方的眼值变化
+            //如果我落子后对方眼值从刚好<2变成>=2→这手棋在帮对方做眼，绝对不能下！
+            //如果我落子后对方眼值刚好<2且对方没别的地方能做眼→堵眼成功！
+            const walls = checks.filter(([nx, ny]) =>
+                nx < 0 || nx >= size || ny < 0 || ny >= size ||
+                (board[nx]?.[ny] === 'O')
+            ).length;
+            const eyeAfter = oppEyes + (walls >= 3 ? 2 : walls >= 2 ? 1 : 0);
+
+            //AI眼位分析
+            if (oppEyes >= 2) {
+                //已活棋，不纠缠
+                continue;
+            } else if (oppEyes < 2 && eyeAfter >= 2) {
+                //我方落子后对方眼值反而≥2→送眼！绝对不下
+                continue;
+            } else if (oppEyes >= 1 && oppEyes < 2 && walls >= 3) {
+                //对方差一点做活，我方填掉最后一个口→"唯一做眼点"！
+                blockMoves.push({ x, y, score: oppSize * 200 });
             } else {
-                //已经活了两只眼→不浪费子力，限制圈地
-                score = 1;
-            }
-
-            if (score > highScore) {
-                highScore = score;
-                moveOptions.length = 0;
-                moveOptions.push([x, y]);
-            } else if (score === highScore) {
-                moveOptions.push([x, y]);
+                //一般杀棋：对方眼值低，紧气
+                const ownNewLibs = getSurroundLibs(x, y, 'X');
+                //AI安全规则：ownLibs<=2且对方>2气→送死
+                let oppMinLib = 999;
+                for (const [nx, ny] of checks) {
+                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
+                        if (validLibMoves[nx][ny] < oppMinLib) oppMinLib = validLibMoves[nx][ny];
+                    }
+                }
+                if (ownNewLibs <= 2 && oppMinLib > 2) continue
+                killMoves.push({ x, y, score: oppSize * oppSize * 10 / (oppMinLib + 1) });
             }
         }
-        const idx = Math.floor(Math.random() * moveOptions.length);
-        const label = killMode ? 'Kill' : 'Reduce';
-        return moveOptions[idx] ? { coords: moveOptions[idx], msg: label + ': ' + highScore } : [];
+
+        const pick = (arr) => {
+            if (!arr.length) return null;
+            arr.sort((a, b) => b.score - a.score);
+            return arr[Math.floor(Math.random() * Math.min(arr.length, 3))];
+        };
+        let best = pick(blockMoves) || pick(killMoves);
+        return best ? { coords: [best.x, best.y], msg: best.score > 100 ? 'BlockEye: ' + Math.round(best.score) : 'Kill: ' + Math.round(best.score) } : [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
@@ -2047,18 +2071,21 @@ export async function main(ns) {
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
     function getSystematicSurround() {
-        //Illuminati AI核心杀棋逻辑：找到眼值低、气少的对方棋链，系统性地紧气包围
-        //跟getKillOrReduce的区别：这里更激进，专门找气少的杀
+        //从AI抄的getSurroundMove：三级紧气+安全检查
+        //① captureMoves: 对方1气→直接提
+        //② atariMoves: 对方2气→打吃（安全才打）
+        //③ surroundMoves: 对方>2气→紧气
+        //安全检查：ownLibs<=2且对方>2气→送死，跳过
+        const captureMoves = [];
+        const atariMoves = [];
         const surroundMoves = [];
         const size = board[0].length;
-        let highScore = 0;
         const moves = getAllValidMoves(true);
         for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
+            if (!['?', 'O'].includes(contested[x][y])) continue
 
-            let totalOppSize = 0;
-            let minOppLibs = 999;
-            let totalOppEyes = 0;
+            //找邻接的对方棋链
+            let oppSize = 0, oppLibs = 999, oppEyes = 0;
             const seenChains = new Set();
             const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
             for (const [nx, ny] of checks) {
@@ -2066,51 +2093,37 @@ export async function main(ns) {
                     const cid = chains[nx][ny];
                     if (!seenChains.has(cid)) {
                         seenChains.add(cid);
-                        const cSize = getChainValue(nx, ny, 'O');
-                        totalOppSize += cSize;
-                        if (validLibMoves[nx][ny] < minOppLibs) minOppLibs = validLibMoves[nx][ny];
-                        totalOppEyes += getEyeValue(nx, ny, 'O');
+                        oppSize += getChainValue(nx, ny, 'O');
+                        if (validLibMoves[nx][ny] < oppLibs) oppLibs = validLibMoves[nx][ny];
+                        oppEyes += getEyeValue(nx, ny, 'O');
                     }
                 }
             }
-            if (totalOppSize === 0) continue;
+            if (oppSize === 0) continue
 
-            //Illuminati核心判断：对方眼值<2（做不出两只眼）且气少 → 可以杀！
-            //气越少越紧迫，眼值越低越容易杀
-            let score = 0;
-            if (minOppLibs <= 3) {
-                //气少：紧气包围，优先杀大棋+眼值低的
-                const eyeFactor = totalOppEyes < 2 ? 100 : (totalOppEyes < 3 ? 30 : 5);
-                score = totalOppSize * totalOppSize * eyeFactor / (minOppLibs + 1);
-            } else if (totalOppEyes < 2 && minOppLibs <= 6) {
-                //眼值低+气还行：开始紧气，逐步缩小空间
-                score = totalOppSize * totalOppSize * 10 / (minOppLibs + 1);
-            }
+            //AI安全检查：落子后新棋子的气量（近似用getSurroundLibs）
+            const ownNewLibs = getSurroundLibs(x, y, 'X');
 
-            //安全检查：落子后自己不能立即被打吃
-            let selfLibs = 0;
-            for (const [nx, ny] of checks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === '.') selfLibs++;
-                else if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X' && validLibMoves[nx][ny] >= 2) selfLibs += 2;
-            }
-            if (selfLibs < 1 && score > 0) {
-                //没有自己的气但是能提子也行
-                let canCapture = false;
-                for (const [nx, ny] of checks) {
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O' && validLibMoves[nx][ny] === 1) canCapture = true;
-                }
-                if (!canCapture) score = 0; //送死，跳过
-            }
+            //AI核心安全规则：如果ownNewLibs<=2且对方气>2，我方会立即被打吃，跳过！
+            if (ownNewLibs <= 2 && oppLibs > 2) continue
 
-            if (score > 0) {
-                surroundMoves.push({ x, y, score });
-                if (score > highScore) highScore = score;
+            //三级分类
+            if (oppLibs <= 1) {
+                captureMoves.push({ x, y, score: oppSize * 100 });
+            } else if (oppLibs === 2 && (ownNewLibs >= 2 || oppSize > 3)) {
+                atariMoves.push({ x, y, score: oppSize * 30 / (oppEyes + 1) });
+            } else if (oppEyes < 2) {
+                surroundMoves.push({ x, y, score: oppSize * 10 / (oppLibs + 1) });
             }
         }
-        if (surroundMoves.length === 0) return [];
-        surroundMoves.sort((a, b) => b.score - a.score);
-        const idx = Math.floor(Math.random() * Math.min(surroundMoves.length, 3));
-        return { coords: [surroundMoves[idx].x, surroundMoves[idx].y], msg: 'Surround: ' + highScore };
+
+        const pick = (arr) => {
+            if (!arr.length) return null;
+            arr.sort((a, b) => b.score - a.score);
+            return arr[Math.floor(Math.random() * Math.min(arr.length, 3))];
+        };
+        let best = pick(captureMoves) || pick(atariMoves) || pick(surroundMoves);
+        return best ? { coords: [best.x, best.y], msg: 'Surround: ' + Math.round(best.score) } : [];
     }
     /** @param {NS} ns
      * @returns {Promise<false | {type:"move"|"pass"|"gameOver"; x:number; y:number;}} */
