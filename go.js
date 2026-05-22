@@ -206,6 +206,7 @@ export async function main(ns) {
                     case 0:  //Netburners
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
+                        if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -231,6 +232,7 @@ export async function main(ns) {
                     case 1:  //The Black Hand
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
+                        if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -255,6 +257,7 @@ export async function main(ns) {
                     case 2: //Mr. Mustacio - Slum Snakes
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
+                        if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -279,6 +282,7 @@ export async function main(ns) {
                     case 3: //Daedalus
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
+                        if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -303,6 +307,7 @@ export async function main(ns) {
                     case 4: //Tetrads
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
+                        if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -327,6 +332,7 @@ export async function main(ns) {
                     case 5: //Illum
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
+                        if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -350,6 +356,7 @@ export async function main(ns) {
                     case 6: //??????
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
+                        if (results = await movePiece(ns, getDoubleAtari())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -687,6 +694,56 @@ export async function main(ns) {
         }
         const idx = Math.floor(Math.random() * moveOptions.length);
         return moveOptions[idx] ? { coords: moveOptions[idx], msg: msg + ': ' + highScore } : [];
+    }
+    /** @param {NS} ns
+     * @returns {{coords: number[]; msg: string;}} */
+    function getDoubleAtari() {
+        //双打吃：一手棋同时让两块对方棋链被打吃（变1气）
+        //对方只能救一块，另一块必死——这是围棋中最强的战术之一
+        const moveOptions = [];
+        const size = board[0].length;
+        let highScore = 0;
+        const moves = getAllValidMoves(true);
+        for (const [x, y] of moves) {
+            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
+
+            //统计四周的对方棋链
+            const threatenedChains = []; //{chainId, size, libs}
+            const seenChains = new Set();
+            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+            for (const [nx, ny] of checks) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
+                    const chainId = chains[nx][ny];
+                    if (!seenChains.has(chainId)) {
+                        seenChains.add(chainId);
+                        const cSize = getChainValue(nx, ny, 'O');
+                        //落子后这口气被占，对方气数-1
+                        const newLibs = validLibMoves[nx][ny] - 1;
+                        threatenedChains.push({ size: cSize, newLibs });
+                    }
+                }
+            }
+
+            //双打吃核心条件：同时威胁至少2条对方棋链
+            //并且其中至少2条在落子后会变成<=1气（被打吃或提掉）
+            if (threatenedChains.length >= 2) {
+                const atariCount = threatenedChains.filter(c => c.newLibs <= 1).length;
+                if (atariCount >= 2) {
+                    //评分：威胁的棋链越多越大越好
+                    const totalSize = threatenedChains.reduce((s, c) => s + c.size, 0);
+                    const score = atariCount * totalSize * totalSize;
+                    if (score > highScore) {
+                        highScore = score;
+                        moveOptions.length = 0;
+                        moveOptions.push([x, y]);
+                    } else if (score === highScore) {
+                        moveOptions.push([x, y]);
+                    }
+                }
+            }
+        }
+        const idx = Math.floor(Math.random() * moveOptions.length);
+        return moveOptions[idx] ? { coords: moveOptions[idx], msg: 'Double Atari: ' + highScore } : [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
