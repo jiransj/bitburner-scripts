@@ -841,6 +841,8 @@ export async function main(ns) {
             const surroundLibs = getSurroundLibs(x, y, "X")
             const enemySurroundLibs = getSurroundLibs(x, y, "O")
             if (contested[x][y] !== "?" || surroundLibs <= 2 || createsLib(x, y, "X") || enemySurroundLibs <= 1) continue
+            //最边上一线几乎总是坏棋，跳过
+            if (x === 0 || x === size - 1 || y === 0 || y === size - 1) continue
             let count = 0
             //We are only checking up, down, left and right.  Don't expand if you're surrounded by friendlies
             if (x > 0 && board[x - 1][y] === "X") count++
@@ -854,7 +856,9 @@ export async function main(ns) {
             const myEyes = getEyeValueFull(x, y, "X") + 1
             const enemies = getSurroundEnemiesFull(x, y) + 1
             const freeSpace = getFreeSpace(x, y)
-            const rank = myEyes * enemySurroundLibs * enemies * enemySurroundChains * freeSpace * surroundSpace
+            //贴边惩罚：最边上一圈(x=0/max,y=0/max)的落子价值极低，评分压到接近0
+            const edgePenalty = (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2) ? 0.05 : 1
+            const rank = myEyes * enemySurroundLibs * enemies * enemySurroundChains * freeSpace * surroundSpace * edgePenalty
 
             if (rank > highValue) {
                 moveOptions.length = 0
@@ -925,7 +929,9 @@ export async function main(ns) {
             //防爬边：在棋盘边缘且连接的棋链小（<5子），延申只会送死
             if ((x === 0 || x === size - 1 || y === 0 || y === size - 1) && total < 5) continue
             const surroundMulti = getSurroundLibSpread(x, y, "X")
-            const rank = total * count * surroundMulti
+            //贴边惩罚：最边两排的落子价值极低，不让AI贴边走
+            const edgePenalty = (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2) ? 0.05 : 1
+            const rank = total * count * surroundMulti * edgePenalty
             if (rank > highValue) {
                 moveOptions.length = 0
                 moveOptions.push([x, y])
@@ -1153,6 +1159,8 @@ export async function main(ns) {
             let isSupport = ((x > 0 && board[x - 1][y] === "X" && validLibMoves[x - 1][y] >= 1) || (x < size - 1 && board[x + 1][y] === "X" && validLibMoves[x + 1][y] >= 1) || (y > 0 && board[x][y - 1] === "X" && validLibMoves[x][y - 1] >= 1) || (y < size - 1 && board[x][y + 1] === "X" && validLibMoves[x][y + 1] >= 1)) ? true : false
             let isAttack = ((x > 0 && board[x - 1][y] === "O" && validLibMoves[x - 1][y] >= 2) || (x < size - 1 && board[x + 1][y] === "O" && validLibMoves[x + 1][y] >= 2) || (y > 0 && board[x][y - 1] === "O" && validLibMoves[x][y - 1] >= 2) || (y < size - 1 && board[x][y + 1] === "O" && validLibMoves[x][y + 1] >= 2)) ? true : false
 
+            //最边上一线的落子几乎总是坏棋，直接跳过
+            if (x === 0 || x === size - 1 || y === 0 || y === size - 1) continue
             const surround = getSurroundSpace(x, y)
             if (isSupport || isAttack) {
                 if (surround > bestRank) {
