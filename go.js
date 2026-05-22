@@ -1148,7 +1148,7 @@ export async function main(ns) {
      * @returns {{coords: number[]; msg: string;}} */
     function getRandomStrat() {
         const moveOptions = []
-        const moveOptions2 = []
+        let moveOptions2 = []
         const size = board[0].length
 
         // Look through all the points on the board
