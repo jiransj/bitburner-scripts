@@ -1318,6 +1318,7 @@ export async function main(ns) {
         const moveOptions = [];
         const size = board[0].length;
         let highValue = 0;
+        let foundLiveGroup = false;
         const moves = getAllValidMoves();
         for (const [x, y] of moves) {
             if (createsLib(x, y, 'X')) continue
@@ -1341,20 +1342,28 @@ export async function main(ns) {
             if (friendlyOrWall >= 2 && emptyCount >= 1) {
                 let maxChainSize = 0;
                 let minChainLibs = 999;
-                let connectedChains = 0;
+                let totalEyeValue = 0;
 
                 for (const [nx, ny] of checks) {
                     if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
                         const cSize = getChainValue(nx, ny, 'X');
                         if (cSize > maxChainSize) maxChainSize = cSize;
                         if (validLibMoves[nx][ny] < minChainLibs) minChainLibs = validLibMoves[nx][ny];
-                        connectedChains++;
+                        //检测连接的棋块的"眼值"——已经有眼的棋是活棋，可以作为进攻基地
+                        totalEyeValue += getEyeValue(nx, ny, 'X');
                     }
                 }
 
+                //判断连接的棋块是否已经是"活棋"（有足够的眼位）
+                const hasLiveGroup = totalEyeValue >= 2;
+                if (hasLiveGroup) foundLiveGroup = true;
+                //活棋周围空位越多，越应该从这个基地向外进攻
+                const aggressionBonus = hasLiveGroup ? emptyCount * emptyCount * 10 : 0;
+
                 //评分：围墙越多越好，连接到的棋块气越少越紧迫需要造眼
                 const libFactor = minChainLibs <= 2 ? 3 : minChainLibs <= 4 ? 2 : 1;
-                const score = friendlyOrWall * friendlyOrWall * libFactor * (maxChainSize + 1);
+                //基础造眼分 + 活棋进攻加成
+                const score = friendlyOrWall * friendlyOrWall * libFactor * (maxChainSize + 1) + aggressionBonus;
 
                 if (score > highValue) {
                     highValue = score;
@@ -1368,30 +1377,31 @@ export async function main(ns) {
         const randomIndex = Math.floor(Math.random() * moveOptions.length)
         return moveOptions[randomIndex] ? {
             coords: moveOptions[randomIndex],
-            msg: 'Create Eye: ' + highValue
+            msg: foundLiveGroup ? 'Eye+Attack: ' + highValue : 'Create Eye: ' + highValue
         } : []
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
     function getBlockEyeMove() {
         //基于Illuminati AI的getEyeBlockingMove逻辑
-        //如果对方只有唯一一个能做出两只眼的点，必须抢占
+        //如果对方在某个点形成3面己方棋子包围（且该点是对方成眼的关键），必须抢占
+        //注意：棋盘边界不算"对方墙壁"，只有实际的对方棋子才算，避免AI走死边
         const blockCandidates = [];
         const size = board[0].length;
         const moves = getAllValidMoves();
         for (const [x, y] of moves) {
             if (!['?', 'O'].includes(contested[x][y])) continue
 
-            //统计对方棋子对我的包围度
-            let opponentWalls = 0;
+            //统计四周：只计算实际的对方棋子（棋盘边界不算！）
+            let opponentCount = 0;
             let emptyAround = 0;
             let friendlyTouch = 0;
             const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
             for (const [nx, ny] of checks) {
                 if (nx < 0 || nx >= size || ny < 0 || ny >= size) {
-                    opponentWalls++;
+                    //棋盘边界是中立屏障，不归入任何一方
                 } else if (board[nx][ny] === 'O') {
-                    opponentWalls++;
+                    opponentCount++;
                 } else if (board[nx][ny] === '.') {
                     emptyAround++;
                 } else if (board[nx][ny] === 'X') {
@@ -1399,27 +1409,33 @@ export async function main(ns) {
                 }
             }
 
-            //对方已经形成3面围墙的，必须堵住最后一个口
-            if (opponentWalls >= 3 && emptyAround >= 1 && friendlyTouch === 0) {
-                //检查这个点连接到的对方棋链是否气很少（快要成眼了）
+            //需要至少2个实际对方棋子+至少1个空位（真正的眼位威胁）
+            //并且这个点必须连接到一个对方的棋链（确认不是孤立无援的落子）
+            if (opponentCount >= 2 && emptyAround >= 1) {
+                //检查连接到的对方棋链是否气很少（有被提风险才可能是真威胁）
                 let oppChainSize = 0;
                 let oppChainLibs = 999;
+                let foundOppChain = false;
                 for (const [nx, ny] of checks) {
                     if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
                         const cSize = getChainValue(nx, ny, 'O');
                         if (cSize > oppChainSize) oppChainSize = cSize;
                         if (validLibMoves[nx][ny] < oppChainLibs) oppChainLibs = validLibMoves[nx][ny];
+                        foundOppChain = true;
                     }
                 }
-                //气越少越紧迫，棋块越大越有价值
+                //必须连接到对方棋链+对方气少（即将成眼）才堵
+                if (!foundOppChain || oppChainLibs > 6) continue;
                 const urgency = oppChainLibs <= 2 ? 100 : oppChainLibs <= 4 ? 50 : 10;
-                const score = urgency * (oppChainSize + 1);
+                const score = urgency * (oppChainSize + 1) * (friendlyTouch > 0 ? 2 : 1);
                 blockCandidates.push({ x, y, score });
             }
         }
         if (blockCandidates.length === 0) return [];
         blockCandidates.sort((a, b) => b.score - a.score);
-        const pick = blockCandidates[Math.floor(Math.random() * Math.min(blockCandidates.length, 3))];
+        //从最优的前几个中随机选，增加变化
+        const topN = Math.min(blockCandidates.length, Math.max(1, Math.floor(blockCandidates.length / 2)));
+        const pick = blockCandidates[Math.floor(Math.random() * topN)];
         return {
             coords: [pick.x, pick.y],
             msg: 'Block Eye: ' + pick.score
