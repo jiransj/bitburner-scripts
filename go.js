@@ -153,69 +153,91 @@ export async function main(ns) {
         if (libsAfter === 0) return -999; // 送死, 绝对不走
         score += libsAfter * 2;
 
-        // 4. 连接自己的子 (适度加分)
+        // 4. 👎 叠棋惩罚: 贴着2个以上自己的子是叠棋 (除了做眼)
         let connects = 0;
-        for (const [dx, dy] of dirs) {
+        const dirs8 = [[-1,0],[1,0],[0,-1],[0,1],[1,1],[1,-1],[-1,1],[-1,-1]];
+        for (const [dx, dy] of dirs8) {
             const nx = x+dx, ny = y+dy;
             if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === me) connects++;
         }
-        score += connects * 3;
+        if (connects >= 4) score -= 12;  // 叠了4个以上 = 效率低
+        else if (connects >= 3) score -= 5;
 
-        // 5. 切断 (适度加分——不要为切断而切断)
-        let cuts = 0;
-        for (const [dx, dy] of dirs) {
-            const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) cuts++;
+        // 5. 👍 跳 (2格距离) 和 大跳/桂马 (3格距离): 高效棋形
+        let jumpBonus = 0;
+        const jumpDirs = [[2,0],[-2,0],[0,2],[0,-2],[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]];
+        for (const chain of chainList) {
+            if (chain.color !== me) continue;
+            for (const [sx, sy] of chain.stones) {
+                const dist = Math.abs(x-sx) + Math.abs(y-sy);
+                const dx = Math.abs(x-sx), dy = Math.abs(y-sy);
+                if (dist === 2 && board[sx][sy] !== '.') jumpBonus += 6;  // 一格跳
+                else if ((dx===2 && dy===1) || (dx===1 && dy===2)) jumpBonus += 5; // 桂马
+                else if (dist === 3 && dx !== 0 && dy !== 0) jumpBonus += 3; // 大跳
+            }
         }
-        score += cuts * 4;
+        score += Math.min(jumpBonus, 12); // 上限12
 
-        // 6. 👎 贴近对手太多是坏棋 (除非能提子)
-        let oppAdj = 0;
-        for (const [dx, dy] of dirs) {
-            const nx = x+dx, ny = y+dy;
-            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) oppAdj++;
-        }
-        // 如果贴着3个以上对手子又没有提子潜力, 大概率是送死
-        if (oppAdj >= 3 && !chainList.some(c => c.color===opp && (libMap.get(c.id)??99)<=1)) {
-            score -= 15;
-        }
-
-        // 7. 边缘价值 (围棋金角银边草肚皮)
+        // 6. 👍 拆边: 沿边线方向有开阔空间
         const edgeDist = Math.min(x, y, size-1-x, size-1-y);
-        if (edgeDist === 0) score -= 5;   // 一线: 坏棋 (除了特定情况)
-        else if (edgeDist === 1) score += 8;  // 二线: 好 (黄金线)
-        else if (edgeDist === 2) score += 10; // 三线: 最好
-        else if (edgeDist === 3) score += 5;  // 四线: 还行
-        else score += 1;                     // 中腹: 待定
+        if (edgeDist <= 2) {
+            let openSides = 0;
+            for (const step of [-2, 2, -3, 3]) {
+                if (Math.abs(step) === 2) {
+                    if (x+step>=0 && x+step<size && board[x+step][y]==='.') openSides+=2;
+                    if (y+step>=0 && y+step<size && board[x][y+step]==='.') openSides+=2;
+                } else {
+                    if (x+step>=0 && x+step<size && board[x+step][y]==='.') openSides++;
+                    if (y+step>=0 && y+step<size && board[x][y+step]==='.') openSides++;
+                }
+            }
+            score += Math.min(openSides, 10);
+        }
 
-        // 8. 远离对手: 周围3格内对手子越少越好 (大局观)
-        let oppInRadius = 0;
-        for (let dx = -3; dx <= 3; dx++) {
+        // 7. 📐 边缘价值 (围棋金角银边草肚皮)
+        if (edgeDist === 0) score -= 8;   // 一线: 坏棋
+        else if (edgeDist === 1) score += 8;  // 二线: 好
+        else if (edgeDist === 2) score += 10; // 三线: 最好
+        else if (edgeDist === 3) score += 5;  // 四线: 不错
+        else score += 1;                     // 中腹
+
+        // 8. 🔪 切断 (只在有明确目标时加分)
+        let cuts = 0;
+        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+            const nx = x+dx, ny = y+dy;
+            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === 'O') cuts++;
+        }
+        if (cuts >= 2) score += 6;  // 切断两个对手子的连接
+        else if (cuts === 1) score += 2;
+
+        // 9. 👎 贴近对手太多是坏棋
+        let oppAdj = 0;
+        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+            const nx = x+dx, ny = y+dy;
+            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === 'O') oppAdj++;
+        }
+        if (oppAdj >= 3) score -= 12;
+        else if (oppAdj >= 2 && !chainList.some(c => c.color==='O' && (libMap.get(c.id)??99)<=1)) score -= 6;
+
+        // 10. 空旷地带加分 (远离双方棋子)
+        let stonesInRadius = 0;
+        for (let dx = -3; dx <= 3; dx++)
             for (let dy = -3; dy <= 3; dy++) {
                 if (dx===0 && dy===0) continue;
                 const nx = x+dx, ny = y+dy;
-                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) oppInRadius++;
+                if (nx>=0 && nx<size && ny>=0 && ny<size) {
+                    if (board[nx][ny] === 'O') stonesInRadius += 2;
+                    else if (board[nx][ny] === 'X') stonesInRadius += 1;
+                }
             }
-        }
-        // 对手子少=空旷地带=发展潜力
-        score += Math.max(0, 12 - oppInRadius) * 1.5;
+        score += Math.max(0, 20 - stonesInRadius) * 0.8;
 
-        // 9. 拆边价值: 沿边方向有开阔空间 (发展领地)
-        if (edgeDist <= 2) {
-            let sidesEmpty = 0;
-            for (const step of [-2, 2]) {
-                if (x+step >= 0 && x+step < size && board[x+step]?.[y] === '.') sidesEmpty++;
-                if (y+step >= 0 && y+step < size && board[x]?.[y+step] === '.') sidesEmpty++;
-            }
-            score += sidesEmpty * 6;
-        }
-
-        // 10. 靠近自己的大龙 (保持整体)
+        // 11. 靠近自己大龙 (协作)
         for (const chain of chainList) {
-            if (chain.color !== me || chain.stones.length < 2) continue;
+            if (chain.color !== 'X' || chain.stones.length < 3) continue;
             const minDist = Math.min(...chain.stones.map(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy)));
-            if (minDist === 2) score += 4;   // 跳一个
-            else if (minDist === 3) score += 3; // 大跳
+            if (minDist === 2) score += 3;
+            else if (minDist === 3) score += 2;
         }
 
         return score;
