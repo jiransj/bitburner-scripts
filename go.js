@@ -2163,6 +2163,28 @@ export async function main(ns) {
             }
         }
         if (attacksAlive) return false
+        //禁止自紧气：己方棋链恰好2气时落子会变1气（除非提子）
+        const selfAtari = (x > 0 && board[x - 1][y] === 'X' && validLibMoves[x - 1][y] === 2) ||
+            (x < size - 1 && board[x + 1][y] === 'X' && validLibMoves[x + 1][y] === 2) ||
+            (y > 0 && board[x][y - 1] === 'X' && validLibMoves[x][y - 1] === 2) ||
+            (y < size - 1 && board[x][y + 1] === 'X' && validLibMoves[x][y + 1] === 2)
+        if (selfAtari) {
+            let captures = false;
+            for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O' && validLibMoves[nx][ny] === 1) captures = true;
+            }
+            if (!captures) return false //自紧气不捕子=送死
+        }
+        //禁止填自己眼位：落子点在己方眼值≥2的区域
+        for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+            if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X' && getEyeValue(nx, ny, 'X') >= 2) {
+                let captures = false;
+                for (const [cx, cy] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+                    if (cx >= 0 && cx < size && cy >= 0 && cy < size && board[cx][cy] === 'O' && validLibMoves[cx][cy] === 1) captures = true;
+                }
+                if (!captures) return false //填己方眼位，跳过
+            }
+        }
         let mid = performance.now()
         ns.printf("%s", attack.msg)
         const results = await go_makeMove(ns, x, y);
