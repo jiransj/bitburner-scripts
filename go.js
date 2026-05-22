@@ -138,9 +138,9 @@ export async function main(ns) {
 
         // --- 1. 提子 (capture) ---
         for (const [x, y] of validMoveList) {
-            const eval = evaluateMove(board, x, y, me);
-            if (eval.capturable) {
-                candidates.push({x, y, score: 1000 + eval.oppAtari * 10, source: 'capture'});
+            const ev = evaluateMove(board, x, y, me);
+            if (ev.capturable) {
+                candidates.push({x, y, score: 1000 + ev.oppAtari * 10, source: 'capture'});
             }
         }
 
@@ -148,11 +148,11 @@ export async function main(ns) {
         // 安全规则: 落子后自己气数>=2 或 能提子
         for (const [x, y] of validMoveList) {
             if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const eval = evaluateMove(board, x, y, me);
-            if (!eval.safe) continue; // 🚫 不安全! 会被提!
-            if (eval.oppAtari >= 1) {
+            const ev = evaluateMove(board, x, y, me);
+            if (!ev.safe) continue; // 🚫 不安全! 会被提!
+            if (ev.oppAtari >= 1) {
                 // 检查对手这口气是否安全(不会被反提)
-                candidates.push({x, y, score: 200 + eval.oppAtari * 30, source: 'atari'});
+                candidates.push({x, y, score: 200 + ev.oppAtari * 30, source: 'atari'});
             }
         }
 
@@ -160,8 +160,8 @@ export async function main(ns) {
         // 检查自己的子是否被打吃, 能否通过这个位置增加气数
         for (const [x, y] of validMoveList) {
             if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const eval = evaluateMove(board, x, y, me);
-            if (!eval.safe) continue;
+            const ev = evaluateMove(board, x, y, me);
+            if (!ev.safe) continue;
 
             // 检查周围有没有自己被打吃的子
             let savesOwnAtari = false;
@@ -185,8 +185,8 @@ export async function main(ns) {
         // 简单眼检测: 一个空点如果所有非墙邻居都是同色, 就是眼
         for (const [x, y] of validMoveList) {
             if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const eval = evaluateMove(board, x, y, me);
-            if (!eval.safe) continue;
+            const ev = evaluateMove(board, x, y, me);
+            if (!ev.safe) continue;
 
             // 检查是不是对手的眼 (下在这里可以破眼)
             let oppEye = true, myEye = true;
@@ -203,8 +203,8 @@ export async function main(ns) {
         // --- 5. 跳/growth (增加自己气数) ---
         for (const [x, y] of validMoveList) {
             if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const eval = evaluateMove(board, x, y, me);
-            if (!eval.safe) continue;
+            const ev = evaluateMove(board, x, y, me);
+            if (!ev.safe) continue;
 
             // 检查是否与自己的子形成跳(空一格)
             let jumpScore = 0;
@@ -227,9 +227,9 @@ export async function main(ns) {
         // --- 6. 拆边/扩张 (expansion) ---
         for (const [x, y] of validMoveList) {
             if (candidates.some(c => c.x===x && c.y===y)) continue;
-            const eval = evaluateMove(board, x, y, me);
-            if (!eval.safe) continue;
-            if (eval.libs < 2) continue;
+            const ev = evaluateMove(board, x, y, me);
+            if (!ev.safe) continue;
+            if (ev.libs < 2) continue;
 
             // 计算到最近墙壁的距离
             let distToWall = Math.min(x, y, size-1-x, size-1-y);
@@ -254,8 +254,8 @@ export async function main(ns) {
         // --- 7. 后备: 走空旷的角落 ---
         if (candidates.length === 0) {
             for (const [x, y] of validMoveList) {
-                const eval = evaluateMove(board, x, y, me);
-                if (!eval.safe) continue;
+                const ev = evaluateMove(board, x, y, me);
+                if (!ev.safe) continue;
 
                 let open = 0;
                 for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
