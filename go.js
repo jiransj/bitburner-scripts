@@ -207,6 +207,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
+                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -234,6 +235,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
+                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -260,6 +262,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
+                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -286,6 +289,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
+                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -312,6 +316,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
+                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -338,6 +343,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
+                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -363,6 +369,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getKillOrReduce())) break
                         if (results = await movePiece(ns, getDoubleAtari())) break
+                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -763,6 +770,80 @@ export async function main(ns) {
         }
         const idx = Math.floor(Math.random() * moveOptions.length);
         return moveOptions[idx] ? { coords: moveOptions[idx], msg: 'Double Atari: ' + highScore } : [];
+    }
+    /** @param {NS} ns
+     * @returns {{coords: number[]; msg: string;}} */
+    function getSaveChain() {
+        //优先救活自己的长条棋：有潜力做眼但还没活的棋链
+        //评分：棋链大小×紧迫度（气少）×眼位潜力
+        //同时检查切断对方死棋和活棋的接应
+        const size = board[0].length;
+        let bestMove = null;
+        let bestScore = 0;
+        let isCut = false;
+        const moves = getAllValidMoves(true);
+        for (const [x, y] of moves) {
+            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
+
+            //检查连接的己方棋链
+            let friendlyChainSize = 0;
+            let friendlyChainLibs = 999;
+            let friendlyEyeValue = 0;
+            //检查连接的对方棋链
+            let oppWeakSize = 0; //眼值<2的弱棋
+            let oppStrongSize = 0; //眼值≥2的活棋
+            const seenFriendly = new Set();
+            const seenOpp = new Set();
+            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+            for (const [nx, ny] of checks) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size) {
+                    if (board[nx][ny] === 'X') {
+                        const cid = chains[nx][ny];
+                        if (!seenFriendly.has(cid)) {
+                            seenFriendly.add(cid);
+                            const cSize = getChainValue(nx, ny, 'X');
+                            if (cSize > friendlyChainSize) friendlyChainSize = cSize;
+                            if (validLibMoves[nx][ny] < friendlyChainLibs) friendlyChainLibs = validLibMoves[nx][ny];
+                            friendlyEyeValue += getEyeValue(nx, ny, 'X');
+                        }
+                    } else if (board[nx][ny] === 'O') {
+                        const cid = chains[nx][ny];
+                        if (!seenOpp.has(cid)) {
+                            seenOpp.add(cid);
+                            const cSize = getChainValue(nx, ny, 'O');
+                            const eVal = getEyeValue(nx, ny, 'O');
+                            if (eVal < 2) oppWeakSize += cSize;
+                            else oppStrongSize += cSize;
+                        }
+                    }
+                }
+            }
+
+            //① 救己方棋：连接到大棋链 + 还没活(眼值<2) + 气有限
+            if (friendlyChainSize >= 3 && friendlyEyeValue < 2 && friendlyChainLibs <= 6) {
+                const urgency = friendlyChainLibs <= 2 ? 100 : friendlyChainLibs <= 4 ? 30 : 5;
+                const score = friendlyChainSize * urgency * (friendlyEyeValue + 1);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = [x, y];
+                    isCut = false;
+                }
+            }
+
+            //② 切断接应：落子同时碰到对方弱棋和活棋 → 切断弱棋的逃跑路线！
+            if (oppWeakSize >= 2 && oppStrongSize >= 2) {
+                const score = oppWeakSize * 50; //切断价值=弱棋大小
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = [x, y];
+                    isCut = true;
+                }
+            }
+        }
+        if (bestMove) {
+            return { coords: bestMove, msg: isCut ? 'Cut: ' + bestScore : 'Save: ' + bestScore };
+        }
+        return [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
