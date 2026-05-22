@@ -684,85 +684,117 @@ export async function main(ns) {
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
     function getSecureTerritory() {
-        //圈地！用小飞/大飞从己方棋跳出，高效占空
-        //关键是：①飞形状 ②面向大空 ③3/4线位置
+        //圈地三原则：
+        //① 敌方打入我方领地 → 攻击驱逐（最高优）
+        //② 领地边界薄弱点 → 补强防守
+        //③ 安全前提下 → 小飞/大飞拓展
         const size = board[0].length;
         let bestMove = null;
         let bestScore = 0;
-        let isKnight = false;
+        let moveType = '';
         const moves = getAllValidMoves(true);
         for (const [x, y] of moves) {
             if (!['?', 'O'].includes(contested[x][y])) continue
-            //边线（1/2线）围不了地，跳过
-            const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
-            if (distEdge < 1) continue
 
-            //检测小飞/大飞形状
-            let knightScore = 0;
-            let extendDir = null; //延伸方向
-            const checks = [[-2, -1], [-2, 1], [2, -1], [2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2],
-                [-3, -1], [-3, 1], [3, -1], [3, 1], [-1, -3], [-1, 3], [1, -3], [1, 3]];
-            for (const [dx, dy] of checks) {
-                const nx = x + dx, ny = y + dy;
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                    const dist = Math.abs(dx) + Math.abs(dy);
-                    if (dist === 3) { knightScore = Math.max(knightScore, 10); extendDir = [dx, dy]; }
-                    if (dist === 4) { knightScore = Math.max(knightScore, 6); extendDir = [dx, dy]; }
-                }
-            }
-            //没有飞形状也支持：从己方棋子直线跳出2格（拆二）
-            if (knightScore === 0) {
-                for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) {
-                    const nx = x + dx, ny = y + dy;
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                        //检查中间点为空（路径通畅）
-                        const midX = x + dx / 2, midY = y + dy / 2;
-                        if (board[midX][midY] === '.') {
-                            knightScore = Math.max(knightScore, 4);
-                            extendDir = [dx / 2, dy / 2];
+            //=== ① 应对打入：敌方棋子在我方控制区内 ===
+            //检查邻接的对方棋子是否在我方领地内
+            let invaderSize = 0;
+            let borderOppSize = 0;
+            const seenInvaders = new Set();
+            for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
+                    const cid = chains[nx][ny];
+                    if (!seenInvaders.has(cid)) {
+                        seenInvaders.add(cid);
+                        //检查这个对方棋链是否被我方领地包围
+                        let surroundedByX = 0;
+                        for (const [cx, cy] of [[nx - 1, ny], [nx + 1, ny], [nx, ny - 1], [nx, ny + 1]]) {
+                            if (cx >= 0 && cx < size && cy >= 0 && cy < size && board[cx][cy] === 'X') surroundedByX++;
+                        }
+                        if (surroundedByX >= 2) {
+                            invaderSize += getChainValue(nx, ny, 'O');
+                        } else {
+                            borderOppSize += getChainValue(nx, ny, 'O');
                         }
                     }
                 }
             }
+            if (invaderSize > 0) {
+                //敌方打入！必须攻击驱逐，评分极高
+                const score = invaderSize * 200;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = [x, y];
+                    moveType = 'Defend';
+                }
+                continue; //入侵应对优先于其他
+            }
 
-            //面向空位的检查：延伸方向的前方应该是开阔的
-            let openAhead = 0;
-            if (extendDir) {
-                const [edx, edy] = extendDir;
-                //沿延伸方向继续向前看2格
-                for (let step = 1; step <= 3; step++) {
-                    const ax = x + edx * step, ay = y + edy * step;
-                    if (ax >= 0 && ax < size && ay >= 0 && ay < size) {
-                        if (board[ax][ay] === '.') openAhead++;
-                        else if (board[ax][ay] === 'O') openAhead += 0.5; //对方势力也要占
-                        else break;
-                    } else break;
+            //=== ② 边界补强：我方领地边界有对方棋子贴近 ===
+            if (borderOppSize > 0) {
+                //对方靠近我方领地边界，需要补强防守
+                const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
+                const posBonus = distEdge === 2 ? 2 : distEdge === 3 ? 1.5 : 1;
+                const score = borderOppSize * 30 * posBonus;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = [x, y];
+                    moveType = 'Guard';
+                }
+                continue;
+            }
+
+            //=== ③ 安全拓展：小飞/大飞/拆二 ===
+            const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
+            if (distEdge < 1) continue
+
+            //检测飞形状
+            let shapeScore = 0;
+            let extendDir = null;
+            const knightChecks = [[-2, -1], [-2, 1], [2, -1], [2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2],
+                [-3, -1], [-3, 1], [3, -1], [3, 1], [-1, -3], [-1, 3], [1, -3], [1, 3]];
+            for (const [dx, dy] of knightChecks) {
+                const nx = x + dx, ny = y + dy;
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
+                    const md = Math.abs(dx) + Math.abs(dy);
+                    if (md === 3) { shapeScore = Math.max(shapeScore, 10); extendDir = [dx, dy]; }
+                    if (md === 4) { shapeScore = Math.max(shapeScore, 6); extendDir = [dx, dy]; }
                 }
             }
-            //没有延伸方向或前方堵死→跳过
-            if (knightScore === 0 && openAhead < 1) continue
-            if (knightScore > 0 && openAhead < 1 && distEdge <= 2) continue
-
-            //已经有己方棋子贴着？避免重复占位
-            let adjacentFriend = 0;
-            for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') adjacentFriend++;
+            if (shapeScore === 0) {
+                for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) {
+                    const nx = x + dx, ny = y + dy;
+                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
+                        const mx = x + dx / 2, my = y + dy / 2;
+                        if (board[mx][my] === '.') { shapeScore = 4; extendDir = [dx / 2, dy / 2]; }
+                    }
+                }
             }
-            //不能紧贴己方棋（那是爬不是飞）
+            if (shapeScore === 0) continue
 
-            //评分：飞形状×前方开阔度×位置
-            const positionBonus = distEdge === 2 ? 3 : distEdge === 3 ? 2.5 : distEdge >= 4 ? 2 : 0.5;
-            const score = (knightScore * 5 + openAhead * 3) * positionBonus;
+            //前方开阔度检查
+            let openAhead = 0;
+            if (extendDir) {
+                for (let s = 1; s <= 3; s++) {
+                    const ax = x + extendDir[0] * s, ay = y + extendDir[1] * s;
+                    if (ax >= 0 && ax < size && ay >= 0 && ay < size) {
+                        if (board[ax][ay] === '.') openAhead++;
+                        else if (board[ax][ay] === 'O') openAhead += 0.5;
+                        else break;
+                    }
+                }
+            }
+            if (openAhead < 1) continue
+
+            const posBonus = distEdge === 2 ? 3 : distEdge === 3 ? 2.5 : 2;
+            const score = (shapeScore * 5 + openAhead * 3) * posBonus;
             if (score > bestScore) {
                 bestScore = score;
                 bestMove = [x, y];
-                isKnight = knightScore >= 4;
+                moveType = 'Knight';
             }
         }
-        return bestMove ? {
-            coords: bestMove,
-            msg: isKnight ? 'Knight: ' + Math.round(bestScore) : 'Extend: ' + Math.round(bestScore)
-        } : [];
+        return bestMove ? { coords: bestMove, msg: moveType + ': ' + Math.round(bestScore) } : [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
