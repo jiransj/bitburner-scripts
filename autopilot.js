@@ -18,6 +18,7 @@ const argsSchema = [ // The set of all command line arguments
     ['high-hack-threshold', 8000], // Once hack level reaches this, we start daemon in high-performance hacking mode
     ['enable-bladeburner', null], // (Deprecated) Bladeburner is now always enabled if it's available. Use '--disable-bladeburner' to explicitly turn off
     ['disable-bladeburner', false], // This will instruct daemon.js not to run the bladeburner.js, even if bladeburner is available.
+    ['disable-darknet', false], // Set to true to prevent darknet-farmer.js from being run (requires Bitburner v3.0+)
     ['wait-for-4s-threshold', 0.9], // Set to 0 to not reset until we have 4S. If money is above this ratio of the 4S Tix API cost, don't reset until we buy it.
     ['disable-wait-for-4s', false], // If true, will doesn't wait for the 4S Tix API to be acquired under any circumstantes
     ['disable-rush-gangs', false], // Set to true to disable focusing work-for-faction on Karma until gangs are unlocked
@@ -635,6 +636,8 @@ export async function main(ns) {
             if (resetInfo.currentNode == 8) daemonArgs.push("--stock-manipulation-focus");
             // Don't run the script to join and manage bladeburner if it is explicitly disabled
             if (options['disable-bladeburner']) daemonArgs.push('--disable-script', getFilePath('bladeburner.js'));
+            // Don't run the darknet farmer if it is explicitly disabled
+            if (options['disable-darknet']) daemonArgs.push('--disable-darknet');
             // Relay the option to suppress tail windows
             if (options['no-tail-windows']) daemonArgs.push('--no-tail-windows');
             // If we have SF4, but not level 3, instruct daemon.js to reserve additional home RAM
