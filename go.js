@@ -626,7 +626,8 @@ export async function main(ns) {
             const enemyLibs = getSurroundLibs(x, y, "O")
             if (count === 0 || (chains < minKilled && enemyLibs <= 1)) continue
 
-            const result = count * chains
+            //平方权重：优先吃大棋！10子棋链得分100，2子棋链得分4，差距25倍
+            const result = count * chains * chains
             if (result > highValue) {
                 moveOptions.length = 0
                 moveOptions.push([x, y])
@@ -694,7 +695,8 @@ export async function main(ns) {
                 }
 
                 //Just HOW effective will this move be?  Counter attack if we can.
-                count *= surround
+                //平方权重：优先救大棋！大龙价值远高于小链
+                count = count * count * surround
 
                 if (count > highValue) {
                     moveOptions.length = 0
@@ -913,6 +915,8 @@ export async function main(ns) {
                 total += down
             }
             if (count <= 0) continue
+            //防爬边：在棋盘边缘且连接的棋链小（<5子），延申只会送死
+            if ((x === 0 || x === size - 1 || y === 0 || y === size - 1) && total < 5) continue
             const surroundMulti = getSurroundLibSpread(x, y, "X")
             const rank = total * count * surroundMulti
             if (rank > highValue) {
