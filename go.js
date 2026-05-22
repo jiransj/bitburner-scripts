@@ -630,29 +630,41 @@ export async function main(ns) {
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
     function getCaptureMove() {
-        //最高优先级：吃掉对方3子以上的棋链
-        //围棋中"吃棋"是最直接的收益，大龙必须立刻提
+        //最高优先级：吃棋！
+        //① 先找能吃2子以上的（非打劫，安全吃）
+        //② 再找能吃1子的（可能打劫，后选）
         const size = board[0].length;
+        let bestNonKo = null; //{x,y,size}
+        let bestKo = null;    //1子打劫
         const moves = getAllValidMoves(true);
         for (const [x, y] of moves) {
             if (contested[x][y] === "X" || validLibMoves[x][y] !== -1) continue
 
             let bestCaptureSize = 0;
-            //检查四个方向：是否有1气的对方棋链
+            let totalCaptureCount = 0;
             const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
             for (const [nx, ny] of checks) {
                 if (nx >= 0 && nx < size && ny >= 0 && ny < size &&
                     board[nx][ny] === 'O' && validLibMoves[nx][ny] === 1) {
                     const chainVal = getChainValue(nx, ny, 'O');
                     if (chainVal > bestCaptureSize) bestCaptureSize = chainVal;
+                    totalCaptureCount += chainVal;
                 }
             }
 
-            //能吃3子以上，立刻吃！
-            if (bestCaptureSize >= 3) {
-                return { coords: [x, y], msg: 'Capture: ' + bestCaptureSize };
+            if (bestCaptureSize >= 2) {
+                //吃2子以上：安全吃，不是打劫，最高优先级
+                if (!bestNonKo || bestCaptureSize > bestNonKo.size) {
+                    bestNonKo = { x, y, size: bestCaptureSize, total: totalCaptureCount };
+                }
+            } else if (bestCaptureSize === 1 && totalCaptureCount === 1) {
+                //吃1子：可能是打劫，记作备选
+                if (!bestKo) bestKo = { x, y };
             }
         }
+
+        if (bestNonKo) return { coords: [bestNonKo.x, bestNonKo.y], msg: 'Capture: ' + bestNonKo.size };
+        if (bestKo) return { coords: [bestKo.x, bestKo.y], msg: 'Capture Ko: 1' };
         return [];
     }
     /** @param {NS} ns
@@ -1847,18 +1859,27 @@ export async function main(ns) {
         if (attack.coords === undefined) return false
         const [x, y] = attack.coords
         if (x === undefined) return false
-        //布局阶段（前15手）不走边角，中盘/官子不限制
         const size = board[0].length
+        //布局阶段（前15手）不走边角，中盘/官子不限制
         if (size >= 9 && turn < 15 && (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2)) {
-            //布局阶段贴边无意义，除非能提子
-            if ((x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) ||
+            const canCapture = (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) ||
                 (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) ||
                 (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) ||
-                (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1)) {
-                //能提子，允许
-            } else {
-                return false //布局阶段不贴边
-            }
+                (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1)
+            if (!canCapture) return false //布局阶段不贴边
+        }
+        //禁止往自己的空里填子！contested[x][y]==='X' = 我方控制区域
+        //除非能提子或救活自己的棋，否则填自己的空=白送目数
+        if (contested && contested[x] && contested[x][y] === 'X') {
+            const canCapture = (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) ||
+                (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) ||
+                (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) ||
+                (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1)
+            const savesAtari = (x > 0 && board[x - 1][y] === 'X' && validLibMoves[x - 1][y] === 1) ||
+                (x < size - 1 && board[x + 1][y] === 'X' && validLibMoves[x + 1][y] === 1) ||
+                (y > 0 && board[x][y - 1] === 'X' && validLibMoves[x][y - 1] === 1) ||
+                (y < size - 1 && board[x][y + 1] === 'X' && validLibMoves[x][y + 1] === 1)
+            if (!canCapture && !savesAtari) return false //填自己的空，跳过
         }
         let mid = performance.now()
         ns.printf("%s", attack.msg)
