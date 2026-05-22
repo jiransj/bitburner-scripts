@@ -1847,24 +1847,17 @@ export async function main(ns) {
         if (attack.coords === undefined) return false
         const [x, y] = attack.coords
         if (x === undefined) return false
-        //全局防贴边：x<=1或x>=size-2或y<=1或y>=size-2不允许落子，除非在进攻（提子）
-        //官子阶段（棋盘大部分已填满）放松限制，允许收官
+        //布局阶段（前15手）不走边角，中盘/官子不限制
         const size = board[0].length
-        if (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2) {
-            let capturing = false
-            if (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) capturing = true
-            else if (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) capturing = true
-            else if (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) capturing = true
-            else if (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1) capturing = true
-            if (!capturing) {
-                //官子检测：空位少于20%时视为官子阶段，允许贴边走
-                const totalCells = size * size
-                let emptyCells = 0
-                for (let i = 0; i < size; i++)
-                    for (let j = 0; j < size; j++)
-                        if (board[i][j] === '.') emptyCells++
-                if (emptyCells > totalCells * 0.2) return false //中盘：禁止贴边
-                //官子：允许贴边收官
+        if (size >= 9 && turn < 15 && (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2)) {
+            //布局阶段贴边无意义，除非能提子
+            if ((x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) ||
+                (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) ||
+                (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) ||
+                (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1)) {
+                //能提子，允许
+            } else {
+                return false //布局阶段不贴边
             }
         }
         let mid = performance.now()
