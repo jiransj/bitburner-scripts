@@ -35,6 +35,8 @@ export async function main(ns) {
     let runOnce = true;
     let turn = 0;
     let totalGames = 0, totalWins = 0;
+    /** @type {Map<string, number>} 记录最近被提子的区域 (key=区域坐标, value=死亡数) */
+    const recentCaptureZones = new Map();
 
     // ── 模式定义 (Sphyxis) ──
     const disrupt4 = [
@@ -137,7 +139,7 @@ export async function main(ns) {
     //   贴近对手只有在能提子或救子时才是有利的
     //   空旷地带发展潜力 > 局部纠缠
     //
-    function scoreMove(board, x, y, chainList, libMap, size, isStrongOpponent, gamePhase = 'midgame') {
+    function scoreMove(board, x, y, chainList, libMap, size, isStrongOpponent, gamePhase = 'midgame', captureZones = new Map()) {
         const me = 'X', opp = 'O';
         let score = 0;
 
@@ -158,12 +160,25 @@ export async function main(ns) {
         }
 
         // 1b. ⭐ 救子 (自己的子被打吃)
+        //   但要判断是否真的能救: 如果对手有充足的气来继续打吃, 救了也是白救
         for (const chain of chainList) {
             if (chain.color !== me) continue;
             const libs = libMap.get(chain.id) ?? 99;
             if (libs > 1) continue;
             const canSave = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
-            if (canSave) score += 35;
+            if (canSave) {
+                // 检查这个被打吃的子是否已经深入敌阵(周围对手子太多)
+                let enemyAround = 0;
+                for (const [sx, sy] of chain.stones) {
+                    for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+                        const nx = sx+dx, ny = sy+dy;
+                        if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === 'O') enemyAround++;
+                    }
+                }
+                // 如果周围对手子太多, 救了也活不了, 放弃
+                if (enemyAround > chain.stones.length * 2) score += 10;  // 希望不大
+                else score += 35;  // 值得救
+            }
         }
 
         // 1c. 🚫 送死检测: 落子后自己没气了且不能提子 = 绝对不走
@@ -184,6 +199,42 @@ export async function main(ns) {
             }
         }
         if (libsAfter === 0 && !canCapture) return -999;
+
+        // 1d. 🚫 "打完吃就走" 检测: 落子后只剩1气 (atari)
+        //     除非能提掉对手, 否则对手下回合就提你
+        if (libsAfter <= 1 && !canCapture) {
+            // 检查周围对手子的气数: 如果对手也只剩1气, 这是对杀
+            let oppInAtari = false;
+            for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+                const nx = x+dx, ny = y+dy;
+                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) {
+                    for (const chain of chainList) {
+                        if (chain.color !== opp) continue;
+                        if ((libMap.get(chain.id)??99) === 1 &&
+                            chain.stones.some(([sx,sy]) => sx===nx && sy===ny))
+                            oppInAtari = true;
+                    }
+                }
+            }
+            if (!oppInAtari) score -= 25;  // 不是对杀, 就是送死
+            else score += 10;  // 对杀! 有机会
+        }
+
+        // 1e. 🚫 深入敌阵: 落子在对手包围圈中, 附近全是对手子
+        let hostileCount = 0;
+        for (let dx = -2; dx <= 2; dx++)
+            for (let dy = -2; dy <= 2; dy++) {
+                if (dx===0 && dy===0) continue;
+                const nx = x+dx, ny = y+dy;
+                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === opp) hostileCount++;
+            }
+        if (hostileCount >= 10) score -= 20;       // 被包围了! 别进去
+        else if (hostileCount >= 6) score -= 10;   // 危险区域
+
+        // 1f. 🚫 避免重复送死: 检查上几回合在这里死了多少子
+        const areaKey = `${Math.floor(x/3)},${Math.floor(y/3)}`;
+        const recentDeaths = captureZones.get(areaKey) ?? 0;
+        if (recentDeaths > 0) score -= recentDeaths * 8;  // 这里刚死过子, 别去了
 
         // ════════════════════════════════════════════
         //  2. 棋形效率 (好形加分, 坏形减分)
@@ -582,7 +633,7 @@ export async function main(ns) {
 
         // 只对候选位置评分 (不遍历所有合法位置, 避免乱走)
         for (const c of candidates) {
-            const s = scoreMove(board, c.x, c.y, chainList, libMap, size, isStrong, gamePhase);
+            const s = scoreMove(board, c.x, c.y, chainList, libMap, size, isStrong, gamePhase, recentCaptureZones);
             scored.push({x: c.x, y: c.y, score: s + c.pri});
         }
 
@@ -723,6 +774,28 @@ export async function main(ns) {
                 if (result && result.type === "gameOver") {
                     await handleGameOver(ns, opp, startTime);
                     break;
+                }
+
+                // 检测提子: 比较走棋前后的棋盘, 记录我方被提的位置
+                const newBoard = ns.go.getBoardState();
+                for (let cx = 0; cx < size; cx++) {
+                    for (let cy = 0; cy < size; cy++) {
+                        if (board[cx][cy] === 'X' && newBoard[cx][cy] !== 'X') {
+                            // 这位置的我方棋子被提了
+                            const areaKey = `${Math.floor(cx/3)},${Math.floor(cy/3)}`;
+                            recentCaptureZones.set(areaKey, (recentCaptureZones.get(areaKey) ?? 0) + 1);
+                        }
+                        if (board[cx][cy] === 'O' && newBoard[cx][cy] !== 'O') {
+                            // 提了对手的子 - 清空这个区域的死亡记忆 (翻盘了)
+                            const areaKey = `${Math.floor(cx/3)},${Math.floor(cy/3)}`;
+                            recentCaptureZones.delete(areaKey);
+                        }
+                    }
+                }
+                // 衰减旧记忆 (每回合衰减20%)
+                for (const [key, val] of recentCaptureZones) {
+                    if (val <= 0) recentCaptureZones.delete(key);
+                    else recentCaptureZones.set(key, val * 0.8);
                 }
             }
         }
