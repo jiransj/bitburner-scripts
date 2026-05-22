@@ -684,9 +684,8 @@ export async function main(ns) {
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
     function getSecureTerritory() {
-        //圈地！使用小飞/大飞高效圈地，不是一步一步爬
-        //小飞(马步): 从己方棋子跳出2×1格，高效且不惧切断
-        //大飞(大马步): 从己方棋子跳出3×1格，更远更快
+        //圈地！用小飞/大飞从己方棋跳出，高效占空
+        //关键是：①飞形状 ②面向大空 ③3/4线位置
         const size = board[0].length;
         let bestMove = null;
         let bestScore = 0;
@@ -694,74 +693,75 @@ export async function main(ns) {
         const moves = getAllValidMoves(true);
         for (const [x, y] of moves) {
             if (!['?', 'O'].includes(contested[x][y])) continue
+            //边线（1/2线）围不了地，跳过
+            const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
+            if (distEdge < 1) continue
 
-            //统计周围空位（BFS）——识别大空
-            const emptyVisited = new Set();
-            let emptyArea = 0;
-            const queue = [[x, y]];
-            emptyVisited.add(x + ',' + y);
-            for (let qi = 0; qi < queue.length && qi < 30; qi++) {
-                const [cx, cy] = queue[qi];
-                for (const [nx, ny] of [[cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]]) {
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && !emptyVisited.has(nx + ',' + ny)) {
-                        emptyVisited.add(nx + ',' + ny);
-                        if (board[nx][ny] === '.') {
-                            emptyArea++;
-                            if (emptyArea < 20) queue.push([nx, ny]);
+            //检测小飞/大飞形状
+            let knightScore = 0;
+            let extendDir = null; //延伸方向
+            const checks = [[-2, -1], [-2, 1], [2, -1], [2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2],
+                [-3, -1], [-3, 1], [3, -1], [3, 1], [-1, -3], [-1, 3], [1, -3], [1, 3]];
+            for (const [dx, dy] of checks) {
+                const nx = x + dx, ny = y + dy;
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
+                    const dist = Math.abs(dx) + Math.abs(dy);
+                    if (dist === 3) { knightScore = Math.max(knightScore, 10); extendDir = [dx, dy]; }
+                    if (dist === 4) { knightScore = Math.max(knightScore, 6); extendDir = [dx, dy]; }
+                }
+            }
+            //没有飞形状也支持：从己方棋子直线跳出2格（拆二）
+            if (knightScore === 0) {
+                for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) {
+                    const nx = x + dx, ny = y + dy;
+                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
+                        //检查中间点为空（路径通畅）
+                        const midX = x + dx / 2, midY = y + dy / 2;
+                        if (board[midX][midY] === '.') {
+                            knightScore = Math.max(knightScore, 4);
+                            extendDir = [dx / 2, dy / 2];
                         }
                     }
                 }
             }
-            if (emptyArea < 3) continue
 
-            //检测小飞/大飞形状：从己方棋子跳出来
-            let knightBonus = 0;
-            const knightMoves = [
-                [-2, -1], [-2, 1], [2, -1], [2, 1],
-                [-1, -2], [-1, 2], [1, -2], [1, 2], //小飞
-                [-3, -1], [-3, 1], [3, -1], [3, 1],
-                [-1, -3], [-1, 3], [1, -3], [1, 3], //大飞
-            ];
-            for (const [dx, dy] of knightMoves) {
-                const nx = x + dx, ny = y + dy;
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                    const isSmall = Math.abs(dx) + Math.abs(dy) === 3; //小飞=曼哈顿距离3
-                    const isBig = Math.abs(dx) + Math.abs(dy) === 4;  //大飞=曼哈顿距离4
-                    if (isSmall) knightBonus = Math.max(knightBonus, 5);
-                    if (isBig) knightBonus = Math.max(knightBonus, 3);
+            //面向空位的检查：延伸方向的前方应该是开阔的
+            let openAhead = 0;
+            if (extendDir) {
+                const [edx, edy] = extendDir;
+                //沿延伸方向继续向前看2格
+                for (let step = 1; step <= 3; step++) {
+                    const ax = x + edx * step, ay = y + edy * step;
+                    if (ax >= 0 && ax < size && ay >= 0 && ay < size) {
+                        if (board[ax][ay] === '.') openAhead++;
+                        else if (board[ax][ay] === 'O') openAhead += 0.5; //对方势力也要占
+                        else break;
+                    } else break;
                 }
             }
+            //没有延伸方向或前方堵死→跳过
+            if (knightScore === 0 && openAhead < 1) continue
+            if (knightScore > 0 && openAhead < 1 && distEdge <= 2) continue
 
-            //支持度检查：3格内己方棋子（按距离加权）
-            let friendlySupport = 0;
-            for (let dx = -3; dx <= 3; dx++) {
-                for (let dy = -3; dy <= 3; dy++) {
-                    if (dx === 0 && dy === 0) continue;
-                    const nx = x + dx, ny = y + dy;
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                        friendlySupport += (4 - Math.abs(dx) - Math.abs(dy)) * 0.5;
-                    }
-                }
+            //已经有己方棋子贴着？避免重复占位
+            let adjacentFriend = 0;
+            for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') adjacentFriend++;
             }
-            //有飞就不需要支持度门槛（飞本身就有接应），没飞则需要
-            if (knightBonus === 0 && friendlySupport < 1) continue
+            //不能紧贴己方棋（那是爬不是飞）
 
-            //位置加分：3线=最佳
-            const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
-            const positionBonus = distEdge === 2 ? 3 : distEdge === 3 ? 2 : distEdge >= 4 ? 1.5 : 0.5;
-
-            //评分：(空位面积+飞加分) × 支持度 × 位置
-            //飞形状评分远高于一步一步走
-            const score = (emptyArea + knightBonus * 8) * Math.max(friendlySupport, 1) * positionBonus;
+            //评分：飞形状×前方开阔度×位置
+            const positionBonus = distEdge === 2 ? 3 : distEdge === 3 ? 2.5 : distEdge >= 4 ? 2 : 0.5;
+            const score = (knightScore * 5 + openAhead * 3) * positionBonus;
             if (score > bestScore) {
                 bestScore = score;
                 bestMove = [x, y];
-                isKnight = knightBonus > 0;
+                isKnight = knightScore >= 4;
             }
         }
         return bestMove ? {
             coords: bestMove,
-            msg: isKnight ? 'Knight Territory: ' + Math.round(bestScore) : 'Territory: ' + Math.round(bestScore)
+            msg: isKnight ? 'Knight: ' + Math.round(bestScore) : 'Extend: ' + Math.round(bestScore)
         } : [];
     }
     /** @param {NS} ns
