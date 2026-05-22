@@ -79,6 +79,23 @@ export async function main(ns) {
         ["BBB??", "BB.X?", "B..X?", "BBB??", "?????"], //Pattern# Sphyxis - 2x2 corner contain #GREAT
         ["?WWW?", "W.*.W", "WXXXW", "?????", "?????"], //Take the 3x3 back corner
     ];
+    //从AI抄的Michi 3x3模式（https://github.com/pasky/michi）
+    //X=我 O=对方 x=除对方外任意 o=除我方外任意 .=空 ?=任意 空格=棋盘外
+    const michi3 = [
+        ["XOX", "...", "???"], //hane - 扳
+        ["XO.", "...", "?.?"], //hane - 非切断扳
+        ["XO?", "X..", "o.?"], //magari - 拐
+        [".O.", "X..", "..."], //katatsuke - 尖靠
+        ["XO?", "O.x", "?x?"], //kiri - 切断
+        ["XO?", "O.X", "???"], //kiri - 窥切断
+        ["?X?", "O.O", "xxx"], //de - 出
+        ["OX?", "x.O", "???"], //keima切
+        ["X.?", "O.?", "   "], //边：追
+        ["OX?", "X.O", "   "], //边：挡
+        ["?X?", "o.O", "   "], //边：连
+        ["?XO", "o.o", "   "], //边：下立
+        ["?OX", "X.O", "   "], //边：切
+    ];
 
     // Testing
     //const opponent = ["Slum Snakes", "Tetrads", "Daedalus", "Illuminati"]
@@ -744,54 +761,65 @@ export async function main(ns) {
                 continue;
             }
 
-            //=== ③ 安全拓展：小飞/大飞/拆二 ===
+            //=== ③ 安全拓展：从AI抄的getExpansionMoveArray逻辑 ===
+            //AI做法：先找4面全空的点（开阔地中央），没有再找双方交界点
             const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
             if (distEdge < 1) continue
 
-            //检测飞形状
+            //判断是否为"开阔地中央"：4个正方向全是空的
+            let allEmpty = true;
+            for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] !== '.') { allEmpty = false; break; }
+            }
+
+            //判断是否为"双方交界点"：邻接的空位链同时接触我和对方
+            //简化版：检查contested[x][y] === '?'（本来就是争夺区）
+            const isDisputed = contested[x][y] === '?';
+
+            //AI说：有开阔地优先占开阔地，没有才占交界
+            if (!allEmpty && !isDisputed) continue
+
+            //飞形状加分（小飞/大飞/拆二）
             let shapeScore = 0;
-            let extendDir = null;
-            const knightChecks = [[-2, -1], [-2, 1], [2, -1], [2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2],
-                [-3, -1], [-3, 1], [3, -1], [3, 1], [-1, -3], [-1, 3], [1, -3], [1, 3]];
-            for (const [dx, dy] of knightChecks) {
+            for (const [dx, dy] of [[-2, -1], [-2, 1], [2, -1], [2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2],
+                [-3, -1], [-3, 1], [3, -1], [3, 1], [-1, -3], [-1, 3], [1, -3], [1, 3]]) {
                 const nx = x + dx, ny = y + dy;
                 if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
                     const md = Math.abs(dx) + Math.abs(dy);
-                    if (md === 3) { shapeScore = Math.max(shapeScore, 10); extendDir = [dx, dy]; }
-                    if (md === 4) { shapeScore = Math.max(shapeScore, 6); extendDir = [dx, dy]; }
+                    shapeScore = Math.max(shapeScore, md === 3 ? 10 : 6);
                 }
             }
             if (shapeScore === 0) {
                 for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) {
                     const nx = x + dx, ny = y + dy;
                     if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                        const mx = x + dx / 2, my = y + dy / 2;
-                        if (board[mx][my] === '.') { shapeScore = 4; extendDir = [dx / 2, dy / 2]; }
+                        if (board[x + dx / 2][y + dy / 2] === '.') { shapeScore = 4; break; }
                     }
                 }
             }
-            if (shapeScore === 0) continue
 
-            //前方开阔度检查
+            //前方开阔度（沿飞方向继续看）
             let openAhead = 0;
-            if (extendDir) {
+            for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
                 for (let s = 1; s <= 3; s++) {
-                    const ax = x + extendDir[0] * s, ay = y + extendDir[1] * s;
+                    const ax = x + dx * s, ay = y + dy * s;
                     if (ax >= 0 && ax < size && ay >= 0 && ay < size) {
                         if (board[ax][ay] === '.') openAhead++;
                         else if (board[ax][ay] === 'O') openAhead += 0.5;
                         else break;
-                    }
+                    } else break;
                 }
             }
-            if (openAhead < 1) continue
 
+            //评分：AI公式 = 开阔地×100 + 飞加成 + 前方视野
+            //开阔地中央价值极高，交界点次之
+            const areaScore = allEmpty ? 100 : 30;
             const posBonus = distEdge === 2 ? 3 : distEdge === 3 ? 2.5 : 2;
-            const score = (shapeScore * 5 + openAhead * 3) * posBonus;
+            const score = (areaScore + shapeScore * 3 + openAhead) * posBonus;
             if (score > bestScore) {
                 bestScore = score;
                 bestMove = [x, y];
-                moveType = 'Knight';
+                moveType = allEmpty ? 'Open' : 'Expand';
             }
         }
         return bestMove ? { coords: bestMove, msg: moveType + ': ' + Math.round(bestScore) } : [];
@@ -1733,6 +1761,7 @@ export async function main(ns) {
     function getDefPattern() {
         let def = []
         def.push(...def5)
+        def.push(...michi3) //从AI抄的Michi模式
 
         const moves = getAllValidMoves()
         for (const [x, y] of moves) {
