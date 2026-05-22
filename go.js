@@ -657,6 +657,7 @@ export async function main(ns) {
         const moveOptions = [];
         const size = board[0].length;
         let highScore = 0;
+        let killMode = false; //在外面声明，供return使用
         const moves = getAllValidMoves(true);
         for (const [x, y] of moves) {
             if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
@@ -673,15 +674,13 @@ export async function main(ns) {
             if (oppChainSize === 0) continue;
 
             let score;
-            let msg;
             if (oppEyesNearby < 2) {
                 //做不出两只眼→可以杀！紧气包围，优先杀大棋
                 score = oppChainSize * oppChainSize * 10;
-                msg = 'Kill';
+                if (score > highScore) killMode = true;
             } else {
                 //已经活了两只眼→不浪费子力，限制圈地
                 score = 1;
-                msg = 'Reduce';
             }
 
             if (score > highScore) {
@@ -693,7 +692,8 @@ export async function main(ns) {
             }
         }
         const idx = Math.floor(Math.random() * moveOptions.length);
-        return moveOptions[idx] ? { coords: moveOptions[idx], msg: msg + ': ' + highScore } : [];
+        const label = killMode ? 'Kill' : 'Reduce';
+        return moveOptions[idx] ? { coords: moveOptions[idx], msg: label + ': ' + highScore } : [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
