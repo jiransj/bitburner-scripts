@@ -207,8 +207,8 @@ export async function main(ns) {
     // ── 主循环 ──
     await start();
     async function start() {
-        const ro=getConfiguration(ns,A); if(!ro||(await instanceCount(ns))>1) return;
-        l=ro.logtime; ro=ro.runOnce; c=ro.cheats&&!ro['disable-cheats']; cct=ro['cheat-chance-threshold'];
+        const cfg=getConfiguration(ns,A); if(!cfg||(await instanceCount(ns))>1) return;
+        l=cfg.logtime; ro=cfg.runOnce; c=cfg.cheats&&!cfg['disable-cheats']; cct=cfg['cheat-chance-threshold'];
         ns.disableLog("go.makeMove"); ns.disableLog("go.passTurn"); ns.disableLog("sleep");
         while(true) {
             tn=0; const opp=ns.go.getOpponent(); ns.print(`INFO: vs ${opp}`);
