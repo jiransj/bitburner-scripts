@@ -215,7 +215,8 @@ export async function main(ns) {
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getBlockEyeMove())) break
+                        if (results = await movePiece(ns, getSqueezeEyes())) break
+                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 3, 3, 1, 6))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -241,7 +242,8 @@ export async function main(ns) {
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getBlockEyeMove())) break
+                        if (results = await movePiece(ns, getSqueezeEyes())) break
+                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 3, 3, 1, 6))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -266,7 +268,8 @@ export async function main(ns) {
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getBlockEyeMove())) break
+                        if (results = await movePiece(ns, getSqueezeEyes())) break
+                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 3, 3, 1, 6))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -291,7 +294,8 @@ export async function main(ns) {
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getBlockEyeMove())) break
+                        if (results = await movePiece(ns, getSqueezeEyes())) break
+                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3, 1, 6))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -316,7 +320,8 @@ export async function main(ns) {
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getBlockEyeMove())) break
+                        if (results = await movePiece(ns, getSqueezeEyes())) break
+                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -341,7 +346,8 @@ export async function main(ns) {
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getBlockEyeMove())) break
+                        if (results = await movePiece(ns, getSqueezeEyes())) break
+                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -365,7 +371,8 @@ export async function main(ns) {
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getBlockEyeMove())) break
+                        if (results = await movePiece(ns, getSqueezeEyes())) break
+                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -1689,64 +1696,150 @@ export async function main(ns) {
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
-    function getBlockEyeMove() {
-        //基于Illuminati AI的getEyeBlockingMove逻辑
-        //如果对方在某个点形成3面己方棋子包围（且该点是对方成眼的关键），必须抢占
-        //注意：棋盘边界不算"对方墙壁"，只有实际的对方棋子才算，避免AI走死边
-        const blockCandidates = [];
+    function getSqueezeEyes() {
+        //Illuminati AI核心挤眼战术：找到对方做眼的关键点，抢先占住
+        //如果对方只有唯一一个能做出两只眼的点，不惜一切代价堵住！
+        //如果对方眼值低（<2），缩小其眼位空间逼死
+        const squeezeMoves = [];
         const size = board[0].length;
+        let highScore = 0;
+        let criticalBlock = null; //唯一能做出两只眼的点
         const moves = getAllValidMoves();
         for (const [x, y] of moves) {
             if (!['?', 'O'].includes(contested[x][y])) continue
 
-            //统计四周：只计算实际的对方棋子（棋盘边界不算！）
-            let opponentCount = 0;
-            let emptyAround = 0;
-            let friendlyTouch = 0;
+            //检查邻接的对方棋链
+            let oppEyesNearby = 0;
+            let oppChainSize = 0;
+            const seenChains = new Set();
+            let touchCount = 0;
             const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
             for (const [nx, ny] of checks) {
-                if (nx < 0 || nx >= size || ny < 0 || ny >= size) {
-                    //棋盘边界是中立屏障，不归入任何一方
-                } else if (board[nx][ny] === 'O') {
-                    opponentCount++;
-                } else if (board[nx][ny] === '.') {
-                    emptyAround++;
-                } else if (board[nx][ny] === 'X') {
-                    friendlyTouch++;
-                }
-            }
-
-            //需要至少2个实际对方棋子+至少1个空位（真正的眼位威胁）
-            //并且这个点必须连接到一个对方的棋链（确认不是孤立无援的落子）
-            if (opponentCount >= 2 && emptyAround >= 1) {
-                //检查连接到的对方棋链是否气很少（有被提风险才可能是真威胁）
-                let oppChainSize = 0;
-                let oppChainLibs = 999;
-                let foundOppChain = false;
-                for (const [nx, ny] of checks) {
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                        const cSize = getChainValue(nx, ny, 'O');
-                        if (cSize > oppChainSize) oppChainSize = cSize;
-                        if (validLibMoves[nx][ny] < oppChainLibs) oppChainLibs = validLibMoves[nx][ny];
-                        foundOppChain = true;
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
+                    const cid = chains[nx][ny];
+                    if (!seenChains.has(cid)) {
+                        seenChains.add(cid);
+                        oppChainSize += getChainValue(nx, ny, 'O');
+                        oppEyesNearby += getEyeValue(nx, ny, 'O');
+                        touchCount++;
                     }
                 }
-                //必须连接到对方棋链+对方气少（即将成眼）才堵
-                if (!foundOppChain || oppChainLibs > 6) continue;
-                const urgency = oppChainLibs <= 2 ? 100 : oppChainLibs <= 4 ? 50 : 10;
-                const score = urgency * (oppChainSize + 1) * (friendlyTouch > 0 ? 2 : 1);
-                blockCandidates.push({ x, y, score });
+            }
+            if (oppChainSize === 0) continue;
+
+            //关键是找到对方离"两只眼"只差一步的点
+            //这类点：对方棋链眼值刚好≥1但<2（差一丢丢就活），而我方落子可以填掉它
+            //同时判断：如果对方四周形成3面墙+1空位，这就是"挤眼"的要点
+            let wallCount = 0;
+            let emptyNextToOpp = 0;
+            for (const [nx, ny] of checks) {
+                if (nx < 0 || nx >= size || ny < 0 || ny >= size) wallCount++;
+                else if (board[nx][ny] === 'O') wallCount++;
+                else if (board[nx][ny] === '.') emptyNextToOpp++;
+            }
+
+            let score = 0;
+            //① 高优先级：对方眼值刚好<2（差一点就活），落子直接挤压眼位
+            if (oppEyesNearby >= 1 && oppEyesNearby < 2 && wallCount >= 2) {
+                score = oppChainSize * 100; //极高优先级！
+                if (!criticalBlock || score > criticalBlock.score) {
+                    criticalBlock = { x, y, score };
+                }
+            }
+            //② 中优先级：3面墙+1空位=典型的挤眼形状
+            if (wallCount >= 3 && emptyNextToOpp >= 1) {
+                score = oppChainSize * 50 + wallCount * 10;
+            }
+            //③ 一般优先级：对方眼值低，填他的眼位空间
+            if (oppEyesNearby < 2 && wallCount >= 2) {
+                score = Math.max(score, oppChainSize * 10);
+            }
+
+            if (score > 0) {
+                squeezeMoves.push({ x, y, score });
+                if (score > highScore) highScore = score;
             }
         }
-        if (blockCandidates.length === 0) return [];
-        blockCandidates.sort((a, b) => b.score - a.score);
-        //从最优的前几个中随机选，增加变化
-        const topN = Math.min(blockCandidates.length, Math.max(1, Math.floor(blockCandidates.length / 2)));
-        const pick = blockCandidates[Math.floor(Math.random() * topN)];
-        return {
-            coords: [pick.x, pick.y],
-            msg: 'Block Eye: ' + pick.score
-        };
+
+        //如果有关键堵眼点（唯一能成两只眼的点），直接返回
+        if (criticalBlock) {
+            return { coords: [criticalBlock.x, criticalBlock.y], msg: 'Squeeze Critical: ' + criticalBlock.score };
+        }
+
+        if (squeezeMoves.length === 0) return [];
+        //选评分最高的几个随机之一
+        squeezeMoves.sort((a, b) => b.score - a.score);
+        const topN = Math.min(squeezeMoves.length, Math.max(1, Math.floor(squeezeMoves.length / 3)));
+        const pick = squeezeMoves[Math.floor(Math.random() * topN)];
+        return { coords: [pick.x, pick.y], msg: 'Squeeze: ' + pick.score };
+    }
+    /** @param {NS} ns
+     * @returns {{coords: number[]; msg: string;}} */
+    function getSystematicSurround() {
+        //Illuminati AI核心杀棋逻辑：找到眼值低、气少的对方棋链，系统性地紧气包围
+        //跟getKillOrReduce的区别：这里更激进，专门找气少的杀
+        const surroundMoves = [];
+        const size = board[0].length;
+        let highScore = 0;
+        const moves = getAllValidMoves(true);
+        for (const [x, y] of moves) {
+            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
+
+            let totalOppSize = 0;
+            let minOppLibs = 999;
+            let totalOppEyes = 0;
+            const seenChains = new Set();
+            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+            for (const [nx, ny] of checks) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
+                    const cid = chains[nx][ny];
+                    if (!seenChains.has(cid)) {
+                        seenChains.add(cid);
+                        const cSize = getChainValue(nx, ny, 'O');
+                        totalOppSize += cSize;
+                        if (validLibMoves[nx][ny] < minOppLibs) minOppLibs = validLibMoves[nx][ny];
+                        totalOppEyes += getEyeValue(nx, ny, 'O');
+                    }
+                }
+            }
+            if (totalOppSize === 0) continue;
+
+            //Illuminati核心判断：对方眼值<2（做不出两只眼）且气少 → 可以杀！
+            //气越少越紧迫，眼值越低越容易杀
+            let score = 0;
+            if (minOppLibs <= 3) {
+                //气少：紧气包围，优先杀大棋+眼值低的
+                const eyeFactor = totalOppEyes < 2 ? 100 : (totalOppEyes < 3 ? 30 : 5);
+                score = totalOppSize * totalOppSize * eyeFactor / (minOppLibs + 1);
+            } else if (totalOppEyes < 2 && minOppLibs <= 6) {
+                //眼值低+气还行：开始紧气，逐步缩小空间
+                score = totalOppSize * totalOppSize * 10 / (minOppLibs + 1);
+            }
+
+            //安全检查：落子后自己不能立即被打吃
+            let selfLibs = 0;
+            for (const [nx, ny] of checks) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === '.') selfLibs++;
+                else if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X' && validLibMoves[nx][ny] >= 2) selfLibs += 2;
+            }
+            if (selfLibs < 1 && score > 0) {
+                //没有自己的气但是能提子也行
+                let canCapture = false;
+                for (const [nx, ny] of checks) {
+                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O' && validLibMoves[nx][ny] === 1) canCapture = true;
+                }
+                if (!canCapture) score = 0; //送死，跳过
+            }
+
+            if (score > 0) {
+                surroundMoves.push({ x, y, score });
+                if (score > highScore) highScore = score;
+            }
+        }
+        if (surroundMoves.length === 0) return [];
+        surroundMoves.sort((a, b) => b.score - a.score);
+        const idx = Math.floor(Math.random() * Math.min(surroundMoves.length, 3));
+        return { coords: [surroundMoves[idx].x, surroundMoves[idx].y], msg: 'Surround: ' + highScore };
     }
     /** @param {NS} ns
      * @returns {Promise<false | {type:"move"|"pass"|"gameOver"; x:number; y:number;}} */
