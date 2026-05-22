@@ -2111,6 +2111,16 @@ export async function main(ns) {
                 (y < size - 1 && board[x][y + 1] === 'X' && validLibMoves[x][y + 1] === 1)
             if (!canCapture && !savesAtari) return false //填自己的空，跳过
         }
+        //不跟活棋纠缠：邻接的对方棋链如果已有2眼且不是提子，不浪费步数
+        let attacksAlive = false;
+        for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+            if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
+                if (getEyeValue(nx, ny, 'O') >= 2 && validLibMoves[nx][ny] > 1) {
+                    attacksAlive = true; //对这活棋的进攻不是提子，浪费步数
+                }
+            }
+        }
+        if (attacksAlive) return false
         let mid = performance.now()
         ns.printf("%s", attack.msg)
         const results = await go_makeMove(ns, x, y);
