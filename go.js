@@ -478,6 +478,19 @@ export async function main(ns) {
         return false;
     }
 
+    // ── 游戏结束处理 ──
+    async function handleGameOver(ns, opp, startTime) {
+        totalGames++;
+        const score = estimateScore(ns.go.getBoardState(), getKomi(opp));
+        const isWin = score > 0;
+        if (isWin) totalWins++;
+        const elapsed = ((performance.now()-startTime)/1000).toFixed(1);
+        ns.tprint(`[${totalGames}] ${opp} ${isWin?'✅':'❌'} 目:${score.toFixed(1)} ${elapsed}s 胜率:${(totalWins/totalGames*100).toFixed(0)}%`);
+        if (runOnce) ns.exit();
+        try { ns.go.resetBoardState(opponent2[Math.floor(Math.random()*opponent2.length)],13); }
+        catch { ns.go.resetBoardState(opponent[Math.floor(Math.random()*opponent.length)],13); }
+    }
+
     // ── 主循环 ──
     await start();
 
@@ -502,6 +515,14 @@ export async function main(ns) {
 
             while (true) {
                 turn++;
+
+                // 检查游戏是否已经结束 (对手 pass 后可能已结束)
+                const gameState = ns.go.getGameState();
+                if (gameState.currentPlayer === 'None') {
+                    await handleGameOver(ns, opp, startTime);
+                    break;
+                }
+
                 const board = ns.go.getBoardState();
                 const size = board.length;
                 const validMoves = getValidMoveList(ns);
@@ -525,20 +546,19 @@ export async function main(ns) {
                         ns.print(`[${turn}] (${move[0]},${move[1]}) 目:${estimateScore(board,getKomi(opp)).toFixed(1)} ${elapsed}s`);
                     }
                 } else {
+                    // 没棋下 → pass
                     if (logtime) ns.print(`[${turn}] pass`);
-                    result = await ns.go.passTurn();
+                    try {
+                        result = await ns.go.passTurn();
+                    } catch (e) {
+                        // pass 时游戏已结束
+                        await handleGameOver(ns, opp, startTime);
+                        break;
+                    }
                 }
 
-                if (result.type === "gameOver") {
-                    totalGames++;
-                    const score = estimateScore(ns.go.getBoardState(), getKomi(opp));
-                    const isWin = score > 0;
-                    if (isWin) totalWins++;
-                    const elapsed = ((performance.now()-startTime)/1000).toFixed(1);
-                    ns.tprint(`[${totalGames}] ${opp} ${isWin?'✅':'❌'} 目:${score.toFixed(1)} ${elapsed}s 胜率:${(totalWins/totalGames*100).toFixed(0)}%`);
-                    if (runOnce) ns.exit();
-                    try { ns.go.resetBoardState(opponent2[Math.floor(Math.random()*opponent2.length)],13); }
-                    catch { ns.go.resetBoardState(opponent[Math.floor(Math.random()*opponent.length)],13); }
+                if (result && result.type === "gameOver") {
+                    await handleGameOver(ns, opp, startTime);
                     break;
                 }
             }
