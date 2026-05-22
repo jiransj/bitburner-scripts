@@ -82,8 +82,61 @@ export async function main(ns) {
         };
     }
 
+    // 过滤掉对手牢牢控制区域内的点 (抄自 gameAI findDisputedTerritory)
+    function filterDisputed(board, moves) {
+        const S=board.length, me='X', opp='O';
+        const inB=(x,y)=>x>=0&&x<S&&y>=0&&y<S;
+        const d4=[[-1,0],[1,0],[0,-1],[0,1]];
+
+        // 1. 找对手棋链
+        const chains=[];
+        const visited=Array.from({length:S},()=>Array(S).fill(false));
+        for(let x=0;x<S;x++) for(let y=0;y<S;y++) {
+            if(visited[x][y]||board[x][y]!==opp) continue;
+            const stones=[],stack=[[x,y]]; visited[x][y]=true;
+            while(stack.length>0) {
+                const [cx,cy]=stack.pop(); stones.push([cx,cy]);
+                for(const [dx,dy] of d4) {
+                    const nx=cx+dx, ny=cy+dy;
+                    if(inB(nx,ny)&&board[nx][ny]===opp&&!visited[nx][ny]){visited[nx][ny]=true;stack.push([nx,ny]);}
+                }
+            }
+            // 计算气
+            const libs=new Set();
+            for(const [sx,sy] of stones) for(const [dx,dy] of d4) {
+                const nx=sx+dx, ny=sy+dy;
+                if(inB(nx,ny)&&board[nx][ny]==='.') libs.add(`${nx},${ny}`);
+            }
+            chains.push({stones,libs:[...libs].map(k=>k.split(',').map(Number))});
+        }
+
+        // 2. 对手的潜在眼位: 被对手围住的空区域
+        const oppTerritory=new Set(); // 对手牢牢控制的空点
+        for(const chain of chains) {
+            if(chain.libs.length>8) continue; // 气太多, 不是眼位
+            // 检查这个棋链的每一口气是否都在"内部"(周围大部分是对手子)
+            for(const [lx,ly] of chain.libs) {
+                let oppAround=0, total=0;
+                for(const [dx,dy] of d4) {
+                    const nx=lx+dx, ny=ly+dy;
+                    if(!inB(nx,ny)) {total++;oppAround++;continue;}
+                    if(board[nx][ny]===opp||board[nx][ny]==='#') oppAround++;
+                    total++;
+                }
+                // 如果气点周围全是/几乎全是对手子 → 这是对手控制区域
+                if(oppAround>=total-1) oppTerritory.add(`${lx},${ly}`);
+            }
+        }
+
+        // 3. 过滤: 在对手控制区域内的点不能下
+        return moves.filter(([x,y])=>!oppTerritory.has(`${x},${y}`));
+    }
+
     // Illuminati 完整决策
-    function getBestMove(board, moves) {
+    function getBestMove(board, allMoves) {
+        // ⭐ 先用 findDisputedTerritory 逻辑过滤: 不去对手控制区送死
+        const moves = filterDisputed(board, allMoves);
+        if (moves.length === 0) return null; // 没有可争议的位置 → pass
         const chains=getChains(board), S=board.length, me='X', opp='O';
         const inB=(x,y)=>x>=0&&x<S&&y>=0&&y<S;
 
