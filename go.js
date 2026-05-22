@@ -139,7 +139,7 @@ export async function main(ns) {
     //   贴近对手只有在能提子或救子时才是有利的
     //   空旷地带发展潜力 > 局部纠缠
     //
-    function scoreMove(board, x, y, chainList, libMap, size, isStrongOpponent, gamePhase = 'midgame', captureZones = new Map()) {
+    function scoreMove(board, x, y, chainList, libMap, size, isStrongOpponent, gamePhase = 'midgame', captureZones = new Map(), eyeMap = new Map(), eyeCountPerChain = new Map()) {
         const me = 'X', opp = 'O';
         let score = 0;
 
@@ -235,6 +235,79 @@ export async function main(ns) {
         const areaKey = `${Math.floor(x/3)},${Math.floor(y/3)}`;
         const recentDeaths = captureZones.get(areaKey) ?? 0;
         if (recentDeaths > 0) score -= recentDeaths * 8;  // 这里刚死过子, 别去了
+
+        // ════════════════════════════════════════════
+        //  1g. 🎯 攻杀判断: 眼位分析
+        // ════════════════════════════════════════════
+
+        for (const chain of chainList) {
+            const chainKey = `${chain.stones[0][0]},${chain.stones[0][1]}`;
+            const eyes = eyeCountPerChain.get(chainKey) ?? 0;
+            const libs = libMap.get(chain.id) ?? 0;
+
+            if (chain.color === opp) {
+                // ---- 攻击对手 ----
+                if (eyes === 0) {
+                    // 0眼: 可杀之! 紧气攻击
+                    const isAdj = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
+                    if (isAdj) {
+                        if (libs <= 1) score += 50;   // 最后一气! 提掉!
+                        else if (libs <= 2) score += 35; // 紧气
+                        else if (libs <= 3) score += 20; // 包围
+                    }
+                    // 攻击眼位: 下在对手眼位上
+                    for (const eye of eyeMap.values()) {
+                        if (eye.owner !== opp) continue;
+                        // 检查这个眼是否属于这个chain
+                        const belongs = eye.chainIds.size > 0;
+                        if (belongs && x === eye.x && y === eye.y) {
+                            score += 30; // 破眼! 不让对手做眼
+                        }
+                    }
+                } else if (eyes === 1) {
+                    // 1眼: 破掉唯一的眼就杀了
+                    for (const eye of eyeMap.values()) {
+                        if (eye.owner !== opp) continue;
+                        const belongs = eye.chainIds.size > 0;
+                        if (belongs && x === eye.x && y === eye.y) {
+                            score += 40; // 破掉最后一个眼! 杀!
+                        }
+                    }
+                    // 同时紧气
+                    const isAdj = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
+                    if (isAdj && libs <= 2) score += 20;
+                }
+            } else if (chain.color === me) {
+                // ---- 防守自己做眼 ----
+                if (eyes === 0 && libs <= 3) {
+                    // 没眼且气少, 需要做眼或逃跑
+                    const isAdj = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
+                    if (isAdj) score += 15; // 接应
+                    // 做眼: 在眼位上落子
+                    for (const eye of eyeMap.values()) {
+                        if (eye.owner !== me) continue;
+                        if (x === eye.x && y === eye.y) score += 25; // 做眼!
+                    }
+                } else if (eyes === 1 && libs <= 2) {
+                    // 只有一个眼且气少, 做第二个眼
+                    for (const eye of eyeMap.values()) {
+                        if (eye.owner !== me) continue;
+                        if (x === eye.x && y === eye.y) score += 30;
+                    }
+                }
+                // 🚫 绝对不要填自己的眼 (除非所有眼都做完了)
+                if (eyes >= 1) {
+                    for (const eye of eyeMap.values()) {
+                        if (eye.owner === me && x === eye.x && y === eye.y) {
+                            // 如果这个棋链还有别的眼, 填一个没关系
+                            // 简单策略: 只有1个眼时绝对不能填
+                            if (eyes <= 1) score -= 40;
+                            else score -= 15;
+                        }
+                    }
+                }
+            }
+        }
 
         // ════════════════════════════════════════════
         //  2. 棋形效率 (好形加分, 坏形减分)
@@ -406,6 +479,82 @@ export async function main(ns) {
 
     function isDesperate(board, opponent) {
         return estimateScore(board, getKomi(opponent)) < -10;
+    }
+
+    // ── 眼位分析 ──
+    // 检测棋盘上每个颜色的"眼"——被单一颜色完全包围的空点
+    function analyzeEyes(board) {
+        const size = board.length;
+        /** @type {Map<string, {x:number, y:number, owner:'X'|'O', chainIds:Set<string>}>} */
+        const eyes = new Map();
+
+        // 遍历所有空点, 检查是否被同色包围
+        for (let x = 0; x < size; x++) {
+            for (let y = 0; y < size; y++) {
+                if (board[x][y] !== '.') continue;
+
+                // 收集周围4个邻居的颜色, 排除 # 墙壁
+                const neighbors = new Set();
+                let wallContact = false;
+                for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+                    const nx = x+dx, ny = y+dy;
+                    if (nx<0 || nx>=size || ny<0 || ny>=size) { wallContact = true; continue; }
+                    const c = board[nx][ny];
+                    if (c === '#') wallContact = true;
+                    else if (c === 'X' || c === 'O') neighbors.add(c);
+                }
+
+                // 如果所有非墙邻居都是同色, 这是一个潜在的眼
+                if (neighbors.size === 1 && !wallContact) {
+                    const owner = [...neighbors][0];
+                    // 检查更大的范围: 周围2格内是否都是同色
+                    let solid = true;
+                    for (let dx = -2; dx <= 2 && solid; dx++) {
+                        for (let dy = -2; dy <= 2 && solid; dy++) {
+                            if (dx===0 && dy===0) continue;
+                            const nx = x+dx, ny = y+dy;
+                            if (nx<0 || nx>=size || ny<0 || ny>=size) continue;
+                            const c = board[nx][ny];
+                            if (c !== owner && c !== '.' && c !== '#') solid = false;
+                        }
+                    }
+                    if (solid) {
+                        // 找到这个眼关联的棋链
+                        const chainIds = new Set();
+                        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+                            const nx = x+dx, ny = y+dy;
+                            if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === owner) {
+                                chainIds.add(`${nx},${ny}`);
+                            }
+                        }
+                        eyes.set(`${x},${y}`, {x, y, owner, chainIds});
+                    }
+                }
+            }
+        }
+        return eyes;
+    }
+
+    // 计算每个棋链有几个眼
+    function countEyesPerChain(chainList, eyeMap) {
+        /** @type {Map<string, number>} key=chainId(用第一颗子坐标), value=眼数 */
+        const result = new Map();
+        for (const chain of chainList) {
+            if (!chain || chain.stones.length === 0) continue;
+            const chainKey = `${chain.stones[0][0]},${chain.stones[0][1]}`;
+            let eyeCount = 0;
+            for (const eye of eyeMap.values()) {
+                for (const cid of eye.chainIds) {
+                    // 检查这个眼是否属于这个chain
+                    if (chain.stones.some(([sx,sy]) => `${sx},${sy}` === cid)) {
+                        eyeCount++;
+                        break;
+                    }
+                }
+            }
+            result.set(chainKey, eyeCount);
+        }
+        return result;
     }
 
     // ── 模式匹配 (保留 Sphyxis) ──
@@ -629,11 +778,16 @@ export async function main(ns) {
         }
 
         const candidates = collectCandidates(board, testBoard, validMoves, chainList, libMap, size, contested);
+
+        // 眼位分析 (用于攻杀判断)
+        const eyeMap = analyzeEyes(board);
+        const eyeCountPerChain = countEyesPerChain(chainList, eyeMap);
+
         const scored = [];
 
         // 只对候选位置评分 (不遍历所有合法位置, 避免乱走)
         for (const c of candidates) {
-            const s = scoreMove(board, c.x, c.y, chainList, libMap, size, isStrong, gamePhase, recentCaptureZones);
+            const s = scoreMove(board, c.x, c.y, chainList, libMap, size, isStrong, gamePhase, recentCaptureZones, eyeMap, eyeCountPerChain);
             scored.push({x: c.x, y: c.y, score: s + c.pri});
         }
 
