@@ -1544,94 +1544,98 @@ export async function main(ns) {
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
     function getCreateEyeMove() {
-        //基于最强的Illuminati AI的getEyeCreationMove逻辑
-        //造眼是围棋根本：一块棋拥有两只眼就永远不能被提
-        //真眼vs假眼的关键：
-        //  中央点：至少3/4面己方包围（棋盘边界不算）
-        //  边点：至少2/3面己方包围
-        //  角点：至少2/2面己方包围
-        //  斜对角不能是对方棋子（对方在斜角会切断连接，使眼变假）
-        const moveOptions = [];
+        //Illuminati AI造眼逻辑：
+        //  ① 只考虑还没活（眼值<2）且气有限的棋链——已经活的不用管
+        //  ② 在该棋链的气位中，找围墙≥2面+空≥1个的候选点
+        //  ③ 评分：造出第2只眼（活棋）> 造第1只眼 > 一般围空
+        //  ④ 气越少越紧迫优先做眼
         const size = board[0].length;
-        let highValue = 0;
-        let foundLiveGroup = false;
+        let bestMove = null;
+        let bestScore = -1;
+        let createsLife = false;
         const moves = getAllValidMoves();
         for (const [x, y] of moves) {
-            if (createsLib(x, y, 'X')) continue
             if (!['?', 'O'].includes(contested[x][y])) continue
 
-            //统计4个正方向：我方棋子和棋盘边界的数量
-            let friendlyOrWall = 0;
-            let emptyCount = 0;
-            let availableDirs = 4; //可用的正方向数量（排除棋盘边界）
+            //检查四周的己方棋链
+            let targetChainSize = 0;
+            let targetChainLibs = 999;
+            let targetEyeValue = 0;
+            let connectedStones = 0;
             const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
             for (const [nx, ny] of checks) {
-                if (nx < 0 || nx >= size || ny < 0 || ny >= size) {
-                    friendlyOrWall++; //棋盘边界相当于己方墙壁
-                    availableDirs--;  //这个方向不存在
-                } else if (board[nx][ny] === 'X') {
-                    friendlyOrWall++;
-                } else if (board[nx][ny] === '.') {
-                    emptyCount++;
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
+                    connectedStones++;
+                    const cSize = getChainValue(nx, ny, 'X');
+                    if (cSize > targetChainSize) targetChainSize = cSize;
+                    if (validLibMoves[nx][ny] < targetChainLibs) targetChainLibs = validLibMoves[nx][ny];
+                    targetEyeValue += getEyeValue(nx, ny, 'X');
                 }
             }
+            //必须连接到己方棋子
+            if (connectedStones === 0) continue
 
-            //根据位置类型确定真眼所需的最小围墙数
-            let minWallsForEye;
-            if (availableDirs === 4) minWallsForEye = 3; //中央：至少3/4
-            else if (availableDirs === 3) minWallsForEye = 2; //边：至少2/3
-            else minWallsForEye = 2; //角：至少2/2
+            //Illuminati核心：跳过已经活了的棋（眼值≥2）
+            if (targetEyeValue >= 2) continue
 
-            //检查4个斜对角：对方棋子超过2个会使眼变假（切断连接）
-            let diagOpponents = 0;
+            //统计围墙数（己方+边界）
+            let walls = 0;
+            let emptyAdj = 0;
+            for (const [nx, ny] of checks) {
+                if (nx < 0 || nx >= size || ny < 0 || ny >= size) walls++;
+                else if (board[nx][ny] === 'X') walls++;
+                else if (board[nx][ny] === '.') emptyAdj++;
+            }
+
+            //Illuminati条件：至少2面围墙+至少1个空位（眼位本身）
+            if (walls < 2 || emptyAdj < 1) continue
+
+            //检查斜对角：超过2个对方棋子会切段连接使眼变假
+            let diagOpp = 0;
             const diagChecks = [[x - 1, y - 1], [x - 1, y + 1], [x + 1, y - 1], [x + 1, y + 1]];
             for (const [nx, ny] of diagChecks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                    diagOpponents++;
-                }
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') diagOpp++;
             }
+            //中央（4个正方向都可用）最多1个斜对角对方，边角可放宽
+            const central = checks.every(([nx, ny]) => nx >= 0 && nx < size && ny >= 0 && ny < size)
+            if (central && diagOpp > 1) continue
+            if (!central && diagOpp > 2) continue
 
-            //真眼判定：围墙够 + 至少有1个空位（眼位本身）+ 斜对角不能太多对方
-            if (friendlyOrWall >= minWallsForEye && emptyCount >= 1 && diagOpponents <= 2) {
-                let maxChainSize = 0;
-                let minChainLibs = 999;
-                let totalEyeValue = 0;
+            //模拟落子后的眼值变化
+            //简化版：检查此点造眼后，当前棋链能否多一只眼
+            const newEyeValue = targetEyeValue + (walls >= 3 ? 2 : 1);
+            const willBeAlive = newEyeValue >= 2; //造出第2只眼=活棋！
+            const urgency = targetChainLibs <= 2 ? 100 : targetChainLibs <= 4 ? 10 : 1;
 
-                for (const [nx, ny] of checks) {
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                        const cSize = getChainValue(nx, ny, 'X');
-                        if (cSize > maxChainSize) maxChainSize = cSize;
-                        if (validLibMoves[nx][ny] < minChainLibs) minChainLibs = validLibMoves[nx][ny];
-                        //检测连接的棋块的"眼值"——已经有眼的棋是活棋，可以作为进攻基地
-                        totalEyeValue += getEyeValue(nx, ny, 'X');
-                    }
+            //评分：造活>造眼>普通，气越少越紧迫
+            let score;
+            if (willBeAlive && targetEyeValue < 2) {
+                score = urgency * targetChainSize * 1000; //创造活棋！最高优先级
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = [x, y];
+                    createsLife = true;
                 }
-
-                //判断连接的棋块是否已经是"活棋"（有足够的眼位）
-                const hasLiveGroup = totalEyeValue >= 2;
-                if (hasLiveGroup) foundLiveGroup = true;
-                //活棋周围空位越多，越应该从这个基地向外进攻
-                const aggressionBonus = hasLiveGroup ? emptyCount * emptyCount * 10 : 0;
-
-                //评分：围墙越多越好，连接到的棋块气越少越紧迫需要造眼
-                const libFactor = minChainLibs <= 2 ? 3 : minChainLibs <= 4 ? 2 : 1;
-                //基础造眼分 + 活棋进攻加成
-                const score = friendlyOrWall * friendlyOrWall * libFactor * (maxChainSize + 1) + aggressionBonus;
-
-                if (score > highValue) {
-                    highValue = score;
-                    moveOptions.length = 0;
-                    moveOptions.push([x, y]);
-                } else if (score === highValue) {
-                    moveOptions.push([x, y]);
+            } else if (targetEyeValue < 1) {
+                score = urgency * targetChainSize * 100; //造第1只眼
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = [x, y];
+                    createsLife = false;
+                }
+            } else {
+                score = urgency * walls * targetChainSize; //加强眼位
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = [x, y];
+                    createsLife = false;
                 }
             }
         }
-        const randomIndex = Math.floor(Math.random() * moveOptions.length)
-        return moveOptions[randomIndex] ? {
-            coords: moveOptions[randomIndex],
-            msg: foundLiveGroup ? 'Eye+Attack: ' + highValue : 'Create Eye: ' + highValue
-        } : []
+        return bestMove ? {
+            coords: bestMove,
+            msg: createsLife ? 'Make Alive: ' + bestScore : 'Create Eye: ' + bestScore
+        } : [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
