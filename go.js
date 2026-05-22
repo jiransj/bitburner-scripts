@@ -204,6 +204,7 @@ export async function main(ns) {
             if (turn >= 3) {
                 switch (playStyle) {
                     case 0:  //Netburners
+                        if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -227,6 +228,7 @@ export async function main(ns) {
                         results = await ns.go.passTurn()
                         break
                     case 1:  //The Black Hand
+                        if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -249,6 +251,7 @@ export async function main(ns) {
                         results = await ns.go.passTurn()
                         break
                     case 2: //Mr. Mustacio - Slum Snakes
+                        if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -271,6 +274,7 @@ export async function main(ns) {
                         results = await ns.go.passTurn()
                         break
                     case 3: //Daedalus
+                        if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -293,6 +297,7 @@ export async function main(ns) {
                         results = await ns.go.passTurn()
                         break
                     case 4: //Tetrads
+                        if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -315,6 +320,7 @@ export async function main(ns) {
                         results = await ns.go.passTurn()
                         break
                     case 5: //Illum
+                        if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -336,6 +342,7 @@ export async function main(ns) {
                         results = await ns.go.passTurn()
                         break
                     case 6: //??????
+                        if (results = await movePiece(ns, getCaptureMove())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
@@ -598,6 +605,34 @@ export async function main(ns) {
             coords: moveOptions[randomIndex],
             msg: "SnakeEyes Cheat"
         } : []
+    }
+    /** @param {NS} ns
+     * @returns {{coords: number[]; msg: string;}} */
+    function getCaptureMove() {
+        //最高优先级：吃掉对方3子以上的棋链
+        //围棋中"吃棋"是最直接的收益，大龙必须立刻提
+        const size = board[0].length;
+        const moves = getAllValidMoves(true);
+        for (const [x, y] of moves) {
+            if (contested[x][y] === "X" || validLibMoves[x][y] !== -1) continue
+
+            let bestCaptureSize = 0;
+            //检查四个方向：是否有1气的对方棋链
+            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+            for (const [nx, ny] of checks) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size &&
+                    board[nx][ny] === 'O' && validLibMoves[nx][ny] === 1) {
+                    const chainVal = getChainValue(nx, ny, 'O');
+                    if (chainVal > bestCaptureSize) bestCaptureSize = chainVal;
+                }
+            }
+
+            //能吃3子以上，立刻吃！
+            if (bestCaptureSize >= 3) {
+                return { coords: [x, y], msg: 'Capture: ' + bestCaptureSize };
+            }
+        }
+        return [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
