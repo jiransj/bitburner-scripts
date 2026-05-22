@@ -139,6 +139,77 @@ export async function main(ns) {
     //   贴近对手只有在能提子或救子时才是有利的
     //   空旷地带发展潜力 > 局部纠缠
     //
+    /**
+     * 评估被打吃的棋链能否逃脱:
+     *   2 = 能安全逃脱 (可连上有2眼的活棋)
+     *   1 = 有可能但不确定
+     *   0 = 死棋, 逃不了
+     */
+    function evaluateEscapeChance(board, atariChain, chainList, eyeCountMap, size, saveX, saveY) {
+        const me = 'X';
+        // 找到这个被打吃棋链的唯一一口气
+        let libertyX = -1, libertyY = -1;
+        for (const [sx, sy] of atariChain.stones) {
+            for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+                const nx = sx+dx, ny = sy+dy;
+                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === '.') {
+                    if (libertyX === -1) { libertyX = nx; libertyY = ny; }
+                }
+            }
+        }
+        // 如果 save 位置就是那口气, 或者 save 位置与棋链相邻
+        const isOnLiberty = (saveX === libertyX && saveY === libertyY);
+        if (!isOnLiberty && !atariChain.stones.some(([sx,sy]) => Math.abs(sx-saveX)+Math.abs(sy-saveY) === 1))
+            return 0; // 不相关
+
+        // 1. 检查被救后是否会被再次打吃 (周围对手太多)
+        let enemyAfter = 0, friendlyAfter = 0;
+        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[2,0],[-2,0],[0,2],[0,-2]]) {
+            const nx = saveX+dx, ny = saveY+dy;
+            if (nx>=0 && nx<size && ny>=0 && ny<size) {
+                if (board[nx][ny] === 'O') enemyAfter++;
+                else if (board[nx][ny] === 'X') friendlyAfter++;
+            }
+        }
+        if (enemyAfter >= friendlyAfter + 2) return 0; // 对手优势, 救了也白救
+
+        // 2. 检查周围2格内有没有自己的活棋(2眼)可以连上
+        for (const otherChain of chainList) {
+            if (otherChain.color !== me) continue;
+            if (otherChain === atariChain) continue; // 自己
+            const chainKey = `${otherChain.stones[0][0]},${otherChain.stones[0][1]}`;
+            const eyes = eyeCountMap.get(chainKey) ?? 0;
+
+            // 只考虑活棋(2眼)或有潜力做活的棋(很多子+很多气)
+            const otherLibs = otherChain.stones.reduce((min, [sx,sy]) => {
+                let c = 0;
+                for (const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+                    const nx=sx+dx, ny=sy+dy;
+                    if (nx>=0&&nx<size&&ny>=0&&ny<size&&board[nx][ny]==='.') c++;
+                }
+                return Math.min(min, c);
+            }, 99);
+            const isAlive = eyes >= 2 || (otherChain.stones.length >= 5 && otherLibs >= 3);
+
+            if (!isAlive) continue; // 不是活棋, 连上也没用
+
+            // 计算到活棋的最短曼哈顿距离
+            const minDist = Math.min(...otherChain.stones.map(([sx,sy]) => Math.abs(sx-saveX)+Math.abs(sy-saveY)));
+            if (minDist <= 2) return 2; // 2步内能连上活棋! 安全!
+            if (minDist <= 3) return 1; // 有可能
+        }
+
+        // 3. 单独判断如果救出来后有足够空间做活
+        let space = 0;
+        for (let dx = -2; dx <= 2; dx++)
+            for (let dy = -2; dy <= 2; dy++) {
+                const nx = saveX+dx, ny = saveY+dy;
+                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === '.') space++;
+            }
+        if (space >= 8 && enemyAfter <= 3) return 1; // 空间够大, 有机会做活
+        return 0; // 死棋
+    }
+
     function scoreMove(board, x, y, chainList, libMap, size, isStrongOpponent, gamePhase = 'midgame', captureZones = new Map(), eyeMap = new Map(), eyeCountPerChain = new Map()) {
         const me = 'X', opp = 'O';
         let score = 0;
@@ -160,24 +231,23 @@ export async function main(ns) {
         }
 
         // 1b. ⭐ 救子 (自己的子被打吃)
-        //   但要判断是否真的能救: 如果对手有充足的气来继续打吃, 救了也是白救
+        //   判断是否真的能救: 能否连上2眼活棋? 还是只是浪费一手?
         for (const chain of chainList) {
             if (chain.color !== me) continue;
             const libs = libMap.get(chain.id) ?? 99;
             if (libs > 1) continue;
             const canSave = chain.stones.some(([sx, sy]) => Math.abs(x-sx)+Math.abs(y-sy) === 1);
             if (canSave) {
-                // 检查这个被打吃的子是否已经深入敌阵(周围对手子太多)
-                let enemyAround = 0;
-                for (const [sx, sy] of chain.stones) {
-                    for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-                        const nx = sx+dx, ny = sy+dy;
-                        if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === 'O') enemyAround++;
-                    }
+                // 🔍 检查这个被打吃的子能否逃到安全区域
+                // 判断标准: 能否在2步内连上一个有2个眼或有足够空间的活棋
+                const escapeScore = evaluateEscapeChance(board, chain, chainList, eyeCountPerChain, size, x, y);
+                if (escapeScore >= 2) {
+                    score += 35;  // 能逃! 值得救
+                } else if (escapeScore === 1) {
+                    score += 12;  // 有可能但不确定
+                } else {
+                    score -= 10;  // 死棋! 不要浪费手数
                 }
-                // 如果周围对手子太多, 救了也活不了, 放弃
-                if (enemyAround > chain.stones.length * 2) score += 10;  // 希望不大
-                else score += 35;  // 值得救
             }
         }
 
