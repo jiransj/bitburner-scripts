@@ -235,36 +235,48 @@ export async function main(ns) {
         //  3. 布局原则 (金角 → 银边 → 草肚皮)
         // ════════════════════════════════════════════
 
-        const edgeDist = Math.min(x, y, size-1-x, size-1-y);
-
-        // 3a. 角部价值: 开局占角最重要
-        if (gamePhase === 'opening') {
-            // 星位(4-4), 小目(3-4), 三三(3-3) 都是好点
-            if (edgeDist === 2 || edgeDist === 3) {
-                // 检查是否真的是角 (x和y都靠近角)
-                const isCornerArea = (x < size/2 && y < size/2) || (x >= size/2 && y < size/2) ||
-                                     (x < size/2 && y >= size/2) || (x >= size/2 && y >= size/2);
-                if (isCornerArea) score += 15; // 占角!
+        // 3a. 📐 修正边缘计算: 考虑 # 墙壁和棋盘外边界
+        //   distToWall = 到最近边界/#墙壁的曼哈顿距离
+        let distToWall = Math.min(x, y, size-1-x, size-1-y);
+        // 检查 `#` 墙壁
+        for (let dx = -3; dx <= 3; dx++) {
+            for (let dy = -3; dy <= 3; dy++) {
+                const nx = x+dx, ny = y+dy;
+                if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] === '#') {
+                    const d = Math.abs(dx) + Math.abs(dy);
+                    if (d < distToWall) distToWall = d;
+                }
             }
         }
+        // 附近有墙壁 = 不是好位置 (发展空间被限制)
+        if (distToWall <= 1) score -= 8;    // 紧贴墙壁或边界 = 坏棋
+        else if (distToWall === 2) score += 3;  // 离墙2格 = 还行
+        else if (distToWall === 3) score += 6;  // 离墙3格 = 好位置
+        else if (distToWall === 4) score += 4;  // 离墙4格
+        // distToWall >= 5 = 中腹, 不加分
 
-        // 3b. 边缘价值
-        if (edgeDist === 0) score -= 10;   // 一线: 坏棋 (除非特殊情形)
-        else if (edgeDist === 1) score += 7;   // 二线: 好
-        else if (edgeDist === 2) score += 12;  // 三线: 最佳
-        else if (edgeDist === 3) score += 6;   // 四线: 好
-        else if (edgeDist === 4) score += 2;   // 五线: 可考虑
-        // 中腹不加分也不减分
-
-        // 3c. 拆边: 沿边发展领地
-        if (edgeDist <= 2) {
+        // 3b. 拆边: 沿空旷方向发展 (不贴墙)
+        if (distToWall >= 2 && distToWall <= 4) {
             let openSides = 0;
             for (const step of [-2, 2, -3, 3]) {
                 const sx = x+step, sy = y+step;
-                if (sx>=0 && sx<size && board[sx][y]==='.') openSides += Math.abs(step) === 2 ? 2 : 1;
-                if (sy>=0 && sy<size && board[x][sy]==='.') openSides += Math.abs(step) === 2 ? 2 : 1;
+                if (sx>=0 && sx<size && board[sx][y]==='.') openSides += Math.abs(step) === 2 ? 1.5 : 0.5;
+                if (sy>=0 && sy<size && board[x][sy]==='.') openSides += Math.abs(step) === 2 ? 1.5 : 0.5;
             }
-            score += Math.min(openSides, 10);
+            score += Math.min(openSides, 8);
+        }
+
+        // 3c. 开局占角 (3-3, 4-4 附近)
+        if (gamePhase === 'opening' && distToWall >= 2 && distToWall <= 4) {
+            // 检查是否开阔角落
+            let cornerOpen = true;
+            for (let dx = -2; dx <= 2 && cornerOpen; dx++)
+                for (let dy = -2; dy <= 2 && cornerOpen; dy++) {
+                    if (dx===0 && dy===0) continue;
+                    const nx = x+dx, ny = y+dy;
+                    if (nx>=0 && nx<size && ny>=0 && ny<size && board[nx][ny] !== '.') cornerOpen = false;
+                }
+            if (cornerOpen) score += 10;
         }
 
         // ════════════════════════════════════════════
@@ -482,47 +494,62 @@ export async function main(ns) {
 
         // 4. 保守后备: 占空角/拆边 (不贴近对手)
         if (candidates.length === 0) {
-            const edgeDist = (x,y) => Math.min(x, y, size-1-x, size-1-y);
+            // 计算到最近墙壁/边界的距离
+            const wallDist = (x,y) => {
+                let d = Math.min(x, y, size-1-x, size-1-y);
+                for (let dx=-3; dx<=3; dx++)
+                    for (let dy=-3; dy<=3; dy++) {
+                        const nx=x+dx, ny=y+dy;
+                        if (nx>=0&&nx<size&&ny>=0&&ny<size&&board[nx][ny]==='#')
+                            d = Math.min(d, Math.abs(dx)+Math.abs(dy));
+                    }
+                return d;
+            };
 
-            // 空角星位
-            const starPoints = [];
+            // 空点: 离墙3-4格, 周围开阔
+            const goodPoints = [];
             for (const [x, y] of validMoves) {
-                const ed = edgeDist(x,y);
-                if (ed === 2 || ed === 3) {
-                    // 检查周围3格内无对手子
-                    let oppNear = false;
-                    for (let dx=-3; dx<=3 && !oppNear; dx++)
-                        for (let dy=-3; dy<=3 && !oppNear; dy++) {
-                            const nx=x+dx, ny=y+dy;
-                            if (nx>=0&&nx<size&&ny>=0&&ny<size&&board[nx][ny]==='O') oppNear=true;
+                const wd = wallDist(x,y);
+                if (wd < 2) continue; // 贴墙不走
+                // 检查周围开阔
+                let open = 0, oppNear = false;
+                for (let dx=-3; dx<=3; dx++)
+                    for (let dy=-3; dy<=3; dy++) {
+                        if (dx===0&&dy===0) continue;
+                        const nx=x+dx, ny=y+dy;
+                        if (nx>=0&&nx<size&&ny>=0&&ny<size) {
+                            if (board[nx][ny]==='.') open++;
+                            if (board[nx][ny]==='O') oppNear = true;
                         }
-                    if (!oppNear) starPoints.push({x,y,source:'star',pri:50});
-                }
+                    }
+                if (!oppNear && open >= 15) goodPoints.push({x,y,wd,open});
             }
-            candidates.push(...starPoints);
+            goodPoints.sort((a,b) => b.open - a.open);
+            for (const p of goodPoints.slice(0,5))
+                candidates.push({x:p.x, y:p.y, source:'open', pri:50});
 
-            // 如果还没有候选, 走保守的拆边
+            // 没找到好点: 走空旷的地方
             if (candidates.length === 0) {
                 for (const [x, y] of validMoves) {
-                    const ed = edgeDist(x,y);
-                    if (ed !== 1 && ed !== 2) continue; // 只考虑三线四线
-                    // 两侧至少一个方向开阔
-                    let openSides = 0;
-                    for (const step of [-3, 3]) {
-                        if (x+step>=0 && x+step<size && board[x+step]?.[y]==='.') openSides++;
-                        if (y+step>=0 && y+step<size && board[x]?.[y+step]==='.') openSides++;
-                    }
-                    if (openSides >= 1) candidates.push({x,y,source:'side',pri:40});
+                    let open = 0;
+                    for (let dx=-2; dx<=2; dx++)
+                        for (let dy=-2; dy<=2; dy++) {
+                            if (dx===0&&dy===0) continue;
+                            const nx=x+dx, ny=y+dy;
+                            if (nx>=0&&nx<size&&ny>=0&&ny<size&&board[nx][ny]==='.') open++;
+                        }
+                    if (open >= 8) candidates.push({x,y,source:'open2',pri:30});
                 }
             }
 
-            // 最后一个都没有: 走星位附近
+            // 最后的最后: 走中间附近
             if (candidates.length === 0) {
                 const center = Math.floor(size/2);
-                const near = validMoves
+                validMoves
                     .map(([x,y]) => ({x,y,d:Math.abs(x-center)+Math.abs(y-center)}))
-                    .sort((a,b) => a.d - b.d);
-                if (near.length > 0) candidates.push({...near[0],source:'center',pri:20});
+                    .sort((a,b) => a.d - b.d)
+                    .slice(0, 3)
+                    .forEach(p => candidates.push({x:p.x, y:p.y, source:'center',pri:15}));
             }
         }
 
