@@ -662,6 +662,24 @@ export async function main(ns) {
                 if (y > 0 && validLibMoves[x][y - 1] === 1 && board[x][y - 1] === "X") count += getChainValue(x, y - 1, "X")
                 if (y < size - 1 && validLibMoves[x][y + 1] === 1 && board[x][y + 1] === "X") count += getChainValue(x, y + 1, "X")
                 if (count === 0 || count < savedMin) continue
+
+                //防送死检查：落子后新棋子自身必须有至少1口"独立气"
+                //如果四周全是对方棋子+1气己方棋，落子=白送
+                let hasOwnLiberty = false
+                if (x > 0 && board[x - 1][y] === '.') hasOwnLiberty = true
+                if (x < size - 1 && board[x + 1][y] === '.') hasOwnLiberty = true
+                if (y > 0 && board[x][y - 1] === '.') hasOwnLiberty = true
+                if (y < size - 1 && board[x][y + 1] === '.') hasOwnLiberty = true
+                //例外：如果能提掉对方棋子，即使自己没有独立气也是合法好棋
+                if (!hasOwnLiberty) {
+                    let canCapture = false
+                    if (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) canCapture = true
+                    if (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) canCapture = true
+                    if (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) canCapture = true
+                    if (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1) canCapture = true
+                    if (!canCapture) continue //既没有气也提不了子 -> 送死，跳过
+                }
+
                 //Just HOW effective will this move be?  Counter attack if we can.
                 count *= surround
 
