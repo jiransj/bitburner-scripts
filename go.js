@@ -1585,6 +1585,16 @@ export async function main(ns) {
         if (attack.coords === undefined) return false
         const [x, y] = attack.coords
         if (x === undefined) return false
+        //全局防贴边：x<=1或x>=size-2或y<=1或y>=size-2不允许落子，除非在进攻（提子）
+        const size = board[0].length
+        if (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2) {
+            let capturing = false
+            if (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) capturing = true
+            else if (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) capturing = true
+            else if (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) capturing = true
+            else if (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1) capturing = true
+            if (!capturing) return false //贴边不进攻=坏棋，跳过让后续函数尝试
+        }
         let mid = performance.now()
         ns.printf("%s", attack.msg)
         const results = await go_makeMove(ns, x, y);
