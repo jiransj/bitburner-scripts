@@ -211,6 +211,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
+                        if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getBlockEyeMove())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 3, 3, 1, 6))) break
@@ -233,6 +234,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
+                        if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getBlockEyeMove())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 3, 3, 1, 6))) break
@@ -254,6 +256,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
+                        if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getBlockEyeMove())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 3, 3, 1, 6))) break
@@ -275,6 +278,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
+                        if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getBlockEyeMove())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3, 1, 6))) break
@@ -296,6 +300,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
+                        if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getBlockEyeMove())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3))) break
@@ -317,6 +322,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
+                        if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getBlockEyeMove())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3))) break
@@ -337,6 +343,7 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
                         if (results = await movePiece(ns, getCreateEyeMove())) break
+                        if (results = await movePiece(ns, getLiveGroupAttack())) break
                         if (results = await movePiece(ns, getBlockEyeMove())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3))) break
@@ -1452,6 +1459,56 @@ export async function main(ns) {
             coords: moveOptions[randomIndex],
             msg: foundLiveGroup ? 'Eye+Attack: ' + highValue : 'Create Eye: ' + highValue
         } : []
+    }
+    /** @param {NS} ns
+     * @returns {{coords: number[]; msg: string;}} */
+    function getLiveGroupAttack() {
+        //活棋进攻：当己方棋块已有两只眼（活棋），以此为基地激进扩张
+        //活棋是安全的进攻基地——对方提不掉，可以放心向外发展
+        const moveOptions = [];
+        const size = board[0].length;
+        let highValue = 0;
+        const moves = getAllValidMoves(true);
+        for (const [x, y] of moves) {
+            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
+
+            //检查落子点是否邻接活棋（眼值>=2的己方棋链）
+            let liveGroupEyes = 0;
+            let liveGroupSize = 0;
+            let attackValue = 0;
+            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+            for (const [nx, ny] of checks) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
+                    const eyeVal = getEyeValue(nx, ny, 'X');
+                    if (eyeVal >= 2) {
+                        liveGroupEyes += eyeVal;
+                        liveGroupSize += getChainValue(nx, ny, 'X');
+                    }
+                }
+                //攻击价值：邻接的对方棋链
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
+                    attackValue += getChainValue(nx, ny, 'O');
+                }
+            }
+
+            //只有从活棋（眼值>=2）出发的扩张才考虑
+            if (liveGroupEyes < 2 || liveGroupSize < 2) continue
+
+            //评分：活棋是安全基地（放大系数10），进攻价值越高越好
+            const score = (attackValue + 1) * 10 * liveGroupSize;
+            if (score > highValue) {
+                highValue = score;
+                moveOptions.length = 0;
+                moveOptions.push([x, y]);
+            } else if (score === highValue) {
+                moveOptions.push([x, y]);
+            }
+        }
+        const randomIndex = Math.floor(Math.random() * moveOptions.length);
+        return moveOptions[randomIndex] ? {
+            coords: moveOptions[randomIndex],
+            msg: 'Live Attack: ' + highValue
+        } : [];
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
