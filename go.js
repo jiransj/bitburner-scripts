@@ -83,7 +83,8 @@ export async function main(ns) {
     }
 
     // 过滤掉对手牢牢控制区域内的点 (抄自 gameAI findDisputedTerritory)
-    function filterDisputed(board, moves) {
+    // 但保留: 能提子的位置 + 能打吃的位置
+    function filterDisputed(board, moves, chains) {
         const S=board.length, me='X', opp='O';
         const inB=(x,y)=>x>=0&&x<S&&y>=0&&y<S;
         const d4=[[-1,0],[1,0],[0,-1],[0,1]];
@@ -128,14 +129,36 @@ export async function main(ns) {
             }
         }
 
-        // 3. 过滤: 在对手控制区域内的点不能下
-        return moves.filter(([x,y])=>!oppTerritory.has(`${x},${y}`));
+        // 3. 保留: 能提子或打吃的位置 (即使在对手控制区内)
+        const keepSet=new Set();
+        for(const [x,y] of moves) {
+            for(const chain of chains) {
+                if(chain.color!==opp) continue;
+                const isAdj=chain.stones.some(([sx,sy])=>Math.abs(sx-x)+Math.abs(sy-y)===1);
+                if(!isAdj) continue;
+                // 能提子(对手气=0)或打吃(对手气=1) → 保留
+                if(chain.libs.length<=1) keepSet.add(`${x},${y}`);
+                // 对手气=2且我落子后安全 → 保留
+                if(chain.libs.length===2) {
+                    let myLibs=0;
+                    for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+                        const nx=x+dx, ny=y+dy;
+                        if(nx>=0&&nx<S&&ny>=0&&ny<S&&board[nx][ny]==='.') myLibs++;
+                    }
+                    if(myLibs>=2) keepSet.add(`${x},${y}`);
+                }
+            }
+        }
+
+        // 4. 过滤: 在对手控制区域内且不能提子/打吃的点 → 删除
+        return moves.filter(([x,y])=>!oppTerritory.has(`${x},${y}`)||keepSet.has(`${x},${y}`));
     }
 
     // Illuminati 完整决策
     function getBestMove(board, allMoves) {
         // ⭐ 先用 findDisputedTerritory 逻辑过滤: 不去对手控制区送死
-        const moves = filterDisputed(board, allMoves);
+        const chains2=getChains(board);
+        const moves = filterDisputed(board, allMoves, chains2);
         if (moves.length === 0) return null; // 没有可争议的位置 → pass
         const chains=getChains(board), S=board.length, me='X', opp='O';
         const inB=(x,y)=>x>=0&&x<S&&y>=0&&y<S;
