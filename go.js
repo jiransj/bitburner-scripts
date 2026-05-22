@@ -663,7 +663,19 @@ export async function main(ns) {
                 if (y < size - 1 && validLibMoves[x][y + 1] === 1 && board[x][y + 1] === "X") count += getChainValue(x, y + 1, "X")
                 if (count === 0 || count < savedMin) continue
 
-                //防送死检查：落子后新棋子自身必须有至少1口"独立气"
+                //防送死检查1：落子点必须有眼位潜力，否则在边上"爬"只是送死
+                //myEyes=0意味着该点周围没有我方控制的领地，延长过去也做不出眼
+                if (myEyes < 1) {
+                    //例外：如果要救的棋链非常大（>=8子），值得继续投入
+                    let bigChain = false
+                    if (x > 0 && board[x - 1][y] === 'X' && getChainValue(x - 1, y, 'X') >= 8) bigChain = true
+                    if (x < size - 1 && board[x + 1][y] === 'X' && getChainValue(x + 1, y, 'X') >= 8) bigChain = true
+                    if (y > 0 && board[x][y - 1] === 'X' && getChainValue(x, y - 1, 'X') >= 8) bigChain = true
+                    if (y < size - 1 && board[x][y + 1] === 'X' && getChainValue(x, y + 1, 'X') >= 8) bigChain = true
+                    if (!bigChain) continue //没有眼位潜力又不是大龙 -> 放弃，不爬了
+                }
+
+                //防送死检查2：落子后新棋子自身必须有至少1口"独立气"
                 //如果四周全是对方棋子+1气己方棋，落子=白送
                 let hasOwnLiberty = false
                 if (x > 0 && board[x - 1][y] === '.') hasOwnLiberty = true
