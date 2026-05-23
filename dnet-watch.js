@@ -66,22 +66,22 @@ export async function main(ns) {
   // ======================== 报告机制 ========================
 
   /** 向控制中枢发送各类报告（写本地 + SCP 到 home，中枢才能读到） */
-  function reportToController(type, data) {
+  async function reportToController(type, data) {
     try {
       const safeName = MY_HOST.replace(/[^a-zA-Z0-9]/g, "_");
       const reportFile = REPORT_BASE + type + "-" + safeName + ".txt";
       ns.write(reportFile, JSON.stringify(data), "w");
       // ⚠️ SCP 到 home！否则中枢在 home 上读不到
-      ns.scp(reportFile, "home");
+      await ns.scp(reportFile, "home");
     } catch (e) {
       ns.print(`[${MY_HOST}] 报告失败: ${e}`);
     }
   }
 
   /** 报告状态（心跳） */
-  function reportStatus(neighbors, allInfected) {
+  async function reportStatus(neighbors, allInfected) {
     const wormRunning = ns.ps(MY_HOST).some((p) => p.filename === WORM_SCRIPT);
-    reportToController("status", {
+    await reportToController("status", {
       host: MY_HOST,
       infectedCount: infectedSet.size,
       neighborCount: neighbors.length,
@@ -114,7 +114,7 @@ export async function main(ns) {
                   ns.tprint(`✅ [${MY_HOST}] 指令破解 ${task.host}`);
                   infectedSet.add(task.host);
                   saveInfected();
-                  reportToController("crack", {
+                  await reportToController("crack", {
                     reporter: MY_HOST, host: task.host,
                     password: task.password, type: "controller",
                   });
@@ -256,7 +256,7 @@ export async function main(ns) {
    * 向 darkwebcontrol.js 报告"需要破解"某个邻居
    * dnet-watch.js 不再直接唤起 dnet-worm.js，改由中枢统一调度
    */
-  function reportCrackNeed(host, details) {
+  async function reportCrackNeed(host, details) {
     const safeTarget = host.replace(/[^a-zA-Z0-9]/g, "_");
     const reportFile = REPORT_BASE + "need-crack-" + safeTarget + ".txt";
     try {
@@ -274,7 +274,7 @@ export async function main(ns) {
         timestamp: Date.now(),
       }), "w");
       // ⚠️ SCP 到 home！否则中枢读不到 need-crack 请求
-      ns.scp(reportFile, "home");
+      await ns.scp(reportFile, "home");
       ns.print(`[${MY_HOST}] → home: 请求破解 ${host}`);
     } catch (e) {
       ns.print(`[${MY_HOST}] 发送破解请求失败: ${e}`);
@@ -400,7 +400,7 @@ export async function main(ns) {
         } else {
           // 无会话 → 报告中枢，由 darkwebcontrol.js 统一调 worm 破解
           ns.print(`[${MY_HOST}] ${host}: 无会话，报告中枢处理`);
-          reportCrackNeed(host, d);
+          await reportCrackNeed(host, d);
         }
       }
 
@@ -430,7 +430,7 @@ export async function main(ns) {
       }
 
       // 阶段 5: 报告状态
-      reportStatus(neighbors, allHaveWatch);
+      await reportStatus(neighbors, allHaveWatch);
     } catch (e) {
       ns.print(`[${MY_HOST}] ⚠️ 主循环异常: ${e}`);
       // 不崩溃，继续下一轮
