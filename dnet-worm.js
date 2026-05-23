@@ -169,8 +169,25 @@ export async function main(ns) {
     } catch {}
   }
 
+  /** 检查并启动 openCache.js */
+  async function checkCache() {
+    try {
+      const files = ns.ls(MY_HOST).filter(f => f.endsWith(".cache") || f.endsWith(".d.cache"));
+      if (files.length === 0) return;
+      // 确保 openCache.js 存在（可能由 home 分发的）
+      if (!ns.fileExists("openCache.js", MY_HOST)) {
+        // 尝试从 home 拉取
+        if (CONTROLLER) await ns.scp("openCache.js", MY_HOST);
+      }
+      if (ns.fileExists("openCache.js", MY_HOST)) {
+        ns.exec("openCache.js", MY_HOST, 1);
+      }
+    } catch {}
+  }
+
   // ── 主循环 ──
   while (true) {
+    await checkCache();
     await checkCmd();
 
     let neighbors = [];
