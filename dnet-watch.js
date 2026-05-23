@@ -250,33 +250,32 @@ export async function main(ns) {
     return count;
   }
 
-  /** 确保目标上有会话（必要时破解） */
+  /** 确保目标上有会话（必要时破解），返回密码供后续 connectToSession 使用 */
   async function ensureSession(host) {
+    let details;
     try {
-      const details = ns.dnet.getServerDetails(host);
-      if (!details.isOnline) return false;
-      if (details.hasSession) return true;
+      details = ns.dnet.getServerDetails(host);
+      if (!details.isOnline) return null;
+      if (details.hasSession) return "已存在会话"; // 已有会话，不需要密码
     } catch (e) {
       ns.print(`[${MY_HOST}] ${host}: 无法获取详情 - ${e}`);
-      return false;
+      return null;
     }
 
     ns.print(`[${MY_HOST}] ${host}: 需要破解以建立会话...`);
 
-    // SCP 脚本到目标
-    await copyScriptsTo(host);
+    // ⚠️ 不要在认证前 SCP！暗网 SCP 需要会话，会静默失败
+    // 直接启动 worm 破解（worm 从本机 authenticate 到目标，不需要目标上有文件）
 
-    // 启动 worm 破解
     const scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST);
     const availRam = ns.getServerMaxRam(MY_HOST) - ns.getServerUsedRam(MY_HOST);
     const threads = Math.max(1, Math.floor(availRam / scriptRam));
-    if (threads < 1) { ns.print(`[${MY_HOST}] ${host}: RAM 不足`); return false; }
 
     const resultFile = REPORT_BASE + "crack-result-" + host.replace(/[^a-zA-Z0-9]/g, "_") + ".txt";
     if (ns.fileExists(resultFile)) ns.rm(resultFile);
 
     const pid = ns.exec(WORM_SCRIPT, MY_HOST, threads, "--target-only", host);
-    if (pid <= 0) { ns.print(`[${MY_HOST}] ${host}: worm 启动失败`); return false; }
+    if (pid <= 0) { ns.print(`[${MY_HOST}] ${host}: worm 启动失败`); return null; }
 
     // 等待完成
     let waited = 0;
@@ -285,10 +284,10 @@ export async function main(ns) {
       waited += 500;
       if (!ns.isRunning(pid)) break;
     }
-    if (ns.isRunning(pid)) { ns.kill(pid); return false; }
+    if (ns.isRunning(pid)) { ns.kill(pid); return null; }
 
     // 读结果
-    if (!ns.fileExists(resultFile)) { ns.print(`[${MY_HOST}] ${host}: 无结果文件`); return false; }
+    if (!ns.fileExists(resultFile)) { ns.print(`[${MY_HOST}] ${host}: 无结果文件`); return null; }
     try {
       const result = JSON.parse(ns.read(resultFile));
       ns.rm(resultFile);
@@ -303,36 +302,53 @@ export async function main(ns) {
             length: result.details.passwordLength || -1,
           });
         }
-        return false;
+        return null;
       }
-      ns.tprint(`✅ [${MY_HOST}] ${host} 破解成功! 密码=${result.password} (${result.type})`);
-      reportToController("crack", { reporter: MY_HOST, host: result.host, password: result.password, type: result.type });
+      const password = result.password;
+      ns.tprint(`✅ [${MY_HOST}] ${host} 破解成功! 密码=${password} (${result.type})`);
+      reportToController("crack", { reporter: MY_HOST, host: result.host, password, type: result.type });
 
       // 释放内存
       await freeMemory(host);
 
       infectedSet.add(host);
       saveInfected();
-      return true;
+      return password; // 返回密码供 connectToSession 使用
     } catch (e) {
       ns.print(`[${MY_HOST}] ${host}: 结果解析失败 - ${e}`);
-      return false;
+      return null;
     }
   }
 
-  /** 在目标服务器上部署并启动 dnet-watch.js（假设已有会话） */
-  async function deployWatchTo(host) {
+  /** 在目标服务器上部署并启动 dnet-watch.js */
+  async function deployWatchTo(host, password) {
     const watchScript = ns.getScriptName();
+
+    // 暗网操作前必须建立/重建会话连接（参考 darkwebcontrol.js dispatchTo 模式）
+    if (password && password !== "已存在会话") {
+      try {
+        await ns.dnet.connectToSession(host, password);
+        ns.print(`[${MY_HOST}] ${host}: 会话已连接`);
+      } catch (e) {
+        ns.print(`[${MY_HOST}] ${host}: connectToSession 失败: ${e}`);
+        // 继续尝试，可能已有会话
+      }
+    }
+
+    // 先复制所有脚本到目标（复制后文件才在目标上存在）
+    const copyOk = await copyScriptsTo(host);
+    if (!copyOk) {
+      ns.print(`[${MY_HOST}] ${host}: 脚本复制失败，无法部署 watch`);
+      return false;
+    }
+
+    // 文件已在目标上，此时 getScriptRam 才能正确获取
     const watchRam = ns.getScriptRam(watchScript, host);
     const hostAvail = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
-
     if (hostAvail < watchRam) {
       ns.print(`[${MY_HOST}] ${host}: RAM不足(${ns.format.ram(hostAvail)} < ${ns.format.ram(watchRam)})，无法部署 watch`);
       return false;
     }
-
-    // 复制所有 4 个脚本
-    await copyScriptsTo(host);
 
     // 启动 watch
     const pid = ns.exec(watchScript, host, 1);
@@ -354,80 +370,87 @@ export async function main(ns) {
   let allInfectedCount = 0;
 
   while (true) {
-    // 阶段 0: 处理控制中枢指令
-    await checkControllerCommands();
-
-    // 阶段 1: 管理 openCache.js
-    await manageCacheWatcher();
-
-    // 阶段 2: 探测邻居
-    let neighbors = [];
     try {
-      neighbors = ns.dnet.probe() || [];
+      // 阶段 0: 处理控制中枢指令
+      await checkControllerCommands();
+
+      // 阶段 1: 管理 openCache.js
+      await manageCacheWatcher();
+
+      // 阶段 2: 探测邻居
+      let neighbors = [];
+      try {
+        neighbors = ns.dnet.probe() || [];
+      } catch (e) {
+        if (String(e).includes("not a darknet server")) {
+          ns.tprint(`❌ [${MY_HOST}] 本机不是暗网服务器`);
+          return;
+        }
+        await ns.sleep(5000);
+        continue;
+      }
+
+      ns.print(`[${MY_HOST}] 探测到 ${neighbors.length} 个邻居`);
+
+      // 阶段 3: 对每个邻居检查 dnet-watch，缺失则部署
+      let deployedCount = 0;
+      for (const host of neighbors) {
+        // 跳过本机
+        if (host === MY_HOST) continue;
+
+        // 检查 watch 是否已在目标上运行
+        if (isWatchRunningOn(host)) {
+          ns.print(`[${MY_HOST}] ${host}: watch 已在运行`);
+          // 确保在 infectedSet 中
+          if (!infectedSet.has(host)) {
+            infectedSet.add(host);
+            saveInfected();
+          }
+          continue;
+        }
+
+        ns.print(`[${MY_HOST}] ${host}: watch 未运行，开始部署`);
+
+        // 确保有会话（必要时破解），返回密码
+        const sessionPwd = await ensureSession(host);
+        if (sessionPwd === null) {
+          ns.print(`[${MY_HOST}] ${host}: 无法建立会话，跳过`);
+          continue;
+        }
+
+        // 部署 watch（传入密码用于 connectToSession）
+        try {
+          const deployed = await deployWatchTo(host, sessionPwd);
+          if (deployed) deployedCount++;
+        } catch (e) {
+          ns.print(`[${MY_HOST}] ${host}: 部署 watch 异常: ${e}`);
+        }
+      }
+
+      // 阶段 4: 全感染检测
+      const allInfected = neighbors.every((h) => infectedSet.has(h) || h === MY_HOST);
+
+      if (allInfected) {
+        allInfectedCount++;
+        ns.print(`[${MY_HOST}] 所有邻居已感染 (连续 ${allInfectedCount} 次)`);
+
+        // 连续确认后，杀死本服务器上所有 worm（只留 watch）
+        if (allInfectedCount >= 2) {
+          const killed = killAllWorms();
+          if (killed > 0) {
+            ns.tprint(`🏁 [${MY_HOST}] 全感染，worm 已休眠`);
+          }
+        }
+      } else {
+        allInfectedCount = 0;
+      }
+
+      // 阶段 5: 报告状态
+      reportStatus(neighbors, allInfected);
     } catch (e) {
-      if (String(e).includes("not a darknet server")) {
-        ns.tprint(`❌ [${MY_HOST}] 本机不是暗网服务器`);
-        return;
-      }
-      await ns.sleep(5000);
-      continue;
+      ns.print(`[${MY_HOST}] ⚠️ 主循环异常: ${e}`);
+      // 不崩溃，继续下一轮
     }
-
-    ns.print(`[${MY_HOST}] 探测到 ${neighbors.length} 个邻居`);
-
-    // 阶段 3: 对每个邻居检查 dnet-watch，缺失则部署
-    let deployedCount = 0;
-    for (const host of neighbors) {
-      // 跳过本机
-      if (host === MY_HOST) continue;
-
-      // 检查 watch 是否已在目标上运行
-      if (isWatchRunningOn(host)) {
-        ns.print(`[${MY_HOST}] ${host}: watch 已在运行`);
-        // 确保在 infectedSet 中
-        if (!infectedSet.has(host)) {
-          infectedSet.add(host);
-          saveInfected();
-        }
-        continue;
-      }
-
-      ns.print(`[${MY_HOST}] ${host}: watch 未运行，开始部署`);
-
-      // 确保有会话（必要时破解）
-      const hasSession = await ensureSession(host);
-      if (!hasSession) {
-        ns.print(`[${MY_HOST}] ${host}: 无法建立会话，跳过`);
-        continue;
-      }
-
-      // 部署 watch
-      const deployed = await deployWatchTo(host);
-      if (deployed) deployedCount++;
-    }
-
-    // 阶段 4: 全感染检测
-    const allInfected = neighbors.every((h) => infectedSet.has(h) || h === MY_HOST);
-
-    if (allInfected) {
-      allInfectedCount++;
-      ns.print(`[${MY_HOST}] 所有邻居已感染 (连续 ${allInfectedCount} 次)`);
-
-      // 连续确认后，杀死本服务器上所有 worm（只留 watch）
-      if (allInfectedCount >= 2) {
-        const killed = killAllWorms();
-        if (killed > 0) {
-          ns.tprint(`🏁 [${MY_HOST}] 全感染，worm 已休眠`);
-        }
-      }
-    } else {
-      allInfectedCount = 0;
-      // 如果有未感染的邻居，确保 worm 可以启动（当需要时，crackTarget 会自动启动 worm）
-      // 不在这里自动启动 worm，由 crackTarget 按需启动
-    }
-
-    // 阶段 5: 报告状态
-    reportStatus(neighbors, allInfected);
 
     await ns.sleep(CHECK_INTERVAL_MS);
   }
