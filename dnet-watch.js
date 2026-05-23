@@ -250,73 +250,30 @@ export async function main(ns) {
     return count;
   }
 
-  /** 确保目标上有会话（必要时破解），返回密码供后续 connectToSession 使用 */
-  async function ensureSession(host) {
-    let details;
+  /**
+   * 向 darkwebcontrol.js 报告"需要破解"某个邻居
+   * dnet-watch.js 不再直接唤起 dnet-worm.js，改由中枢统一调度
+   */
+  function reportCrackNeed(host, details) {
+    const safeTarget = host.replace(/[^a-zA-Z0-9]/g, "_");
+    const reportFile = REPORT_BASE + "need-crack-" + safeTarget + ".txt";
     try {
-      details = ns.dnet.getServerDetails(host);
-      if (!details.isOnline) return null;
-      if (details.hasSession) return "已存在会话"; // 已有会话，不需要密码
+      ns.write(reportFile, JSON.stringify({
+        reporter: MY_HOST,
+        host: host,
+        isOnline: details.isOnline,
+        hasSession: details.hasSession,
+        maxRam: ns.getServerMaxRam(host),
+        usedRam: ns.getServerUsedRam(host),
+        passwordHint: details.passwordHint || details.staticPasswordHint || "",
+        passwordFormat: details.passwordFormat || "",
+        passwordLength: details.passwordLength || -1,
+        data: details.data || "",
+        timestamp: Date.now(),
+      }), "w");
+      ns.print(`[${MY_HOST}] → home: 请求破解 ${host}`);
     } catch (e) {
-      ns.print(`[${MY_HOST}] ${host}: 无法获取详情 - ${e}`);
-      return null;
-    }
-
-    ns.print(`[${MY_HOST}] ${host}: 需要破解以建立会话...`);
-
-    // ⚠️ 不要在认证前 SCP！暗网 SCP 需要会话，会静默失败
-    // 直接启动 worm 破解（worm 从本机 authenticate 到目标，不需要目标上有文件）
-
-    const scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST);
-    const availRam = ns.getServerMaxRam(MY_HOST) - ns.getServerUsedRam(MY_HOST);
-    const threads = Math.max(1, Math.floor(availRam / scriptRam));
-
-    const resultFile = REPORT_BASE + "crack-result-" + host.replace(/[^a-zA-Z0-9]/g, "_") + ".txt";
-    if (ns.fileExists(resultFile)) ns.rm(resultFile);
-
-    const pid = ns.exec(WORM_SCRIPT, MY_HOST, threads, "--target-only", host);
-    if (pid <= 0) { ns.print(`[${MY_HOST}] ${host}: worm 启动失败`); return null; }
-
-    // 等待完成（快速轮询）
-    let waited = 0;
-    while (waited < 120000) {
-      await ns.sleep(100);
-      waited += 100;
-      if (!ns.isRunning(pid)) break;
-    }
-    if (ns.isRunning(pid)) { ns.kill(pid); return null; }
-
-    // 读结果
-    if (!ns.fileExists(resultFile)) { ns.print(`[${MY_HOST}] ${host}: 无结果文件`); return null; }
-    try {
-      const result = JSON.parse(ns.read(resultFile));
-      ns.rm(resultFile);
-      if (!result.success) {
-        ns.print(`[${MY_HOST}] ${host}: 破解失败`);
-        if (result.needAnalysis && result.details) {
-          reportToController("need", {
-            reporter: MY_HOST, host: result.host,
-            hint: result.details.passwordHint || "",
-            data: result.details.data || "",
-            format: result.details.passwordFormat || "",
-            length: result.details.passwordLength || -1,
-          });
-        }
-        return null;
-      }
-      const password = result.password;
-      ns.tprint(`✅ [${MY_HOST}] ${host} 破解成功! 密码=${password} (${result.type})`);
-      reportToController("crack", { reporter: MY_HOST, host: result.host, password, type: result.type });
-
-      // 释放内存
-      await freeMemory(host);
-
-      infectedSet.add(host);
-      saveInfected();
-      return password; // 返回密码供 connectToSession 使用
-    } catch (e) {
-      ns.print(`[${MY_HOST}] ${host}: 结果解析失败 - ${e}`);
-      return null;
+      ns.print(`[${MY_HOST}] 发送破解请求失败: ${e}`);
     }
   }
 
@@ -437,15 +394,9 @@ export async function main(ns) {
           try { if (await deployWatchTo(host, "已存在会话")) deployedCount++; }
           catch (e) { ns.print(`[${MY_HOST}] ${host}: 部署异常: ${e}`); }
         } else {
-          // 无会话 → 破解
-          ns.print(`[${MY_HOST}] ${host}: 无会话，开始破解`);
-          const pwd = await ensureSession(host);
-          if (pwd === null) {
-            ns.print(`[${MY_HOST}] ${host}: 破解失败，下轮重试`);
-            continue;
-          }
-          try { if (await deployWatchTo(host, pwd)) deployedCount++; }
-          catch (e) { ns.print(`[${MY_HOST}] ${host}: 部署异常: ${e}`); }
+          // 无会话 → 报告中枢，由 darkwebcontrol.js 统一调 worm 破解
+          ns.print(`[${MY_HOST}] ${host}: 无会话，报告中枢处理`);
+          reportCrackNeed(host, d);
         }
       }
 
