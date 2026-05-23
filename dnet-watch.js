@@ -658,7 +658,7 @@ export async function main(ns) {
         const stockRam = ns.getScriptRam(DARK_STOCK_SCRIPT, MY_HOST);
         const freeRam = ns.getServerMaxRam(MY_HOST) - ns.getServerUsedRam(MY_HOST);
         const threads = Math.max(1, Math.floor(freeRam / stockRam));
-        const pid = ns.exec(DARK_STOCK_SCRIPT, MY_HOST, threads, "--all");
+        const pid = ns.exec(DARK_STOCK_SCRIPT, MY_HOST, threads);
         if (pid > 0) ns.tprint(`📈 [${MY_HOST}] dark-stockspread.js 已启动 (PID=${pid}, ${threads}线程)`);
       } else if (!allHaveWatch && stockRunning) {
         // 出现新未攻克目标 → 杀掉推广器，释放内存给破解
