@@ -1,8 +1,9 @@
 /**
- * dark-stockspread.js — 极限刷 XP（全股票并行版）
+ * dark-stockspread.js — 极限刷 XP（多实例分片版）
  *
- * 一次向助手传入全部股票，Promise.all 并行推广。
- * N 支股票 = N 倍 XP/轮，等待时间不变。
+ * Bitburner 不允许单脚本并发 Netscript 调用（Promise.all 不适用）。
+ * 改为：将股票分片，每片启动一个独立助手实例，多实例并行跑。
+ * 每个助手内部串行 promoteStock，但多实例间真正并行。
  *
  * 用法:
  *   run dark-stockspread.js              推广全部 33 支
@@ -20,25 +21,34 @@ export async function main(ns) {
     "FNS","JGN","SGC","CTYS","MDYN","TITN",
   ];
 
-  const symbols = ns.args.filter(a => typeof a === "string" && !a.startsWith("--"));
-  if (symbols.length === 0) symbols.push(...ALL_STOCKS);
+  let symbols = ns.args.filter(a => typeof a === "string" && !a.startsWith("--"));
+  if (symbols.length === 0) symbols = [...ALL_STOCKS];
 
-  // 助手脚本 — Promise.all 并行
+  // 助手脚本 — 顺序循环（Netscript 禁止并发调用）
   if (!ns.fileExists(HELPER)) {
     ns.write(HELPER,
-      `export async function main(ns) { await Promise.all(ns.args.map(s=>ns.dnet.promoteStock(s))); }`, "w");
+      `export async function main(ns) { for(const s of ns.args) await ns.dnet.promoteStock(s); }`, "w");
   }
   await ns.sleep(20);
 
   const ramPer = ns.getScriptRam(HELPER, HOST);
-  ns.print(`[${HOST}] 助手 ${ramPer}GB/线程 | ${symbols.length} 支并行 | 目标 X${symbols.length}/轮`);
+  ns.print(`[${HOST}] 助手 ${ramPer}GB/线程 | ${symbols.length} 支`);
 
+  // 计算最大并行实例数
   while (true) {
     const free = ns.getServerMaxRam(HOST) - ns.getServerUsedRam(HOST);
-    const threads = Math.max(1, Math.floor(free / ramPer));
+    const maxInstances = Math.max(1, Math.floor(free / ramPer));
 
-    const pid = ns.run(HELPER, threads, ...symbols);
-    if (pid === 0) { await ns.sleep(50); continue; }
-    while (ns.isRunning(pid)) await ns.sleep(50);
+    // 股票分片，每片给一个实例
+    const batchSize = Math.ceil(symbols.length / maxInstances);
+    const pids = [];
+    for (let i = 0; i < maxInstances && i * batchSize < symbols.length; i++) {
+      const batch = symbols.slice(i * batchSize, (i + 1) * batchSize);
+      const pid = ns.run(HELPER, 1, ...batch);
+      if (pid > 0) pids.push(pid);
+    }
+
+    // 等所有实例跑完再启动下一轮
+    while (pids.some(p => ns.isRunning(p))) await ns.sleep(50);
   }
 }
