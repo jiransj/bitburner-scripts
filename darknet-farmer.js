@@ -69,6 +69,7 @@ const argsSchema = [
     ['verbose', false],              // 详细日志
     ['phishing-only', false],        // 仅钓鱼模式(快捷)
     ['memory-only', false],          // 仅内存模式(快捷)
+    ['darkweb-try-connect', true],   // 尝试自动进入 darkweb(需SF4)
     ['max-workers', 5],              // 同时运行的worker最大数量
     ['worker-threads', 1],           // worker线程数
     ['reserve', 0],                  // 保留资金
@@ -105,6 +106,27 @@ export async function main(ns) {
         ns.tprint("ERROR: 需要 Bitburner v3.0+，未检测到 ns.dnet API");
         ns.exit();
         return;
+    }
+
+    // ── 检查暗网入口(darkweb) ──
+    if (!ns.scan("home").includes("darkweb")) {
+        ns.tprint("WARNING: 未检测到 darkweb 入口，尝试购买 Tor 路由器...");
+        try {
+            if (ns.singularity.purchaseTor()) {
+                ns.tprint("SUCCESS: Tor 路由器已购买!");
+            } else {
+                ns.tprint("WARNING: 购买 Tor 失败(资金不足?)，请手动购买 Tor 后连接 darkweb");
+            }
+        } catch (e) {
+            ns.tprint("WARNING: 无法自动购买 Tor(需要 SF4/Singularity API)，请手动: buy Tor → connect darkweb");
+        }
+    } else {
+        ns.print("INFO: ✓ darkweb 入口可用");
+    }
+
+    // ── 尝试连接进入 darkweb ──
+    if (options['darkweb-try-connect']) {
+        await tryConnectToDarkweb(ns);
     }
 
     // 检查 WORKER_SCRIPT 是否存在
@@ -190,6 +212,14 @@ export async function main(ns) {
                 printReport(ns, serverState, totalStats, cycleCount);
             }
 
+            // ── 如果一直没有发现服务器，尝试重新进入 darkweb ──
+            if (serverState.all.size === 0 && cycleCount % 12 === 0) {
+                ns.print("WARN: 尚未发现任何暗网服务器。请确保: ①已购买Tor ②已connect darkweb ③当前BitNode有暗网");
+                if (options['darkweb-try-connect']) {
+                    await tryConnectToDarkweb(ns);
+                }
+            }
+
         } catch (e) {
             ns.print(`WARN: 主循环异常: ${e}`);
             if (options['verbose']) ns.print(`堆栈: ${e.stack}`);
@@ -212,16 +242,20 @@ async function exploreAndMap(ns, serverState) {
     let newFound = 0;
     const toExplore = new Set();
 
-    // 尝试探测当前所在服务器
+    // 尝试探测暗网服务器
     try {
         const neighbors = ns.dnet.probe();
+        if (neighbors.length > 0) {
+            ns.print(`INFO: dnet.probe() 发现 ${neighbors.length} 个服务器: ${neighbors.join(', ')}`);
+        }
         for (const host of neighbors) {
             if (!serverState.all.has(host)) {
                 toExplore.add(host);
             }
         }
     } catch (e) {
-        // 当前不在暗网服务器上
+        // probe失败，可能不在暗网中
+        ns.print(`WARN: dnet.probe() 失败(${e})，可能未连接到 darkweb`);
     }
 
     // 获取已知服务器的详细信息
@@ -655,6 +689,39 @@ function sanitizeHost(host) {
 }
 
 /**
+ * 尝试连接进入 darkweb（暗网入口）
+ * 如果当前不在 darkweb 上，通过 Singularity API 连接（需SF4）
+ * @param {NS} ns
+ * @returns {Promise<boolean>} 是否成功连接
+ */
+async function tryConnectToDarkweb(ns) {
+    try {
+        // 检查是否已经在 darkweb 上
+        if (ns.getHostname() === "darkweb") {
+            return true;
+        }
+        // 检查 darkweb 是否可达
+        if (!ns.scan("home").includes("darkweb")) {
+            ns.print("WARN: darkweb 不可达，请先购买 Tor 路由器");
+            return false;
+        }
+        // 尝试通过 Singularity API 连接
+        try {
+            ns.singularity.connect("darkweb");
+            ns.print("SUCCESS: ✓ 已通过 Singularity 连接到 darkweb");
+            return true;
+        } catch (e) {
+            ns.print("WARN: 无法自动连接 darkweb(需要 SF4/Singularity API)");
+            ns.print("INFO: 请在终端手动执行: connect darkweb");
+            return false;
+        }
+    } catch (e) {
+        ns.print(`WARN: tryConnectToDarkweb 异常: ${e}`);
+        return false;
+    }
+}
+
+/**
  * 打印状态报告到终端
  */
 function printReport(ns, serverState, totalStats, cycleCount) {
@@ -664,7 +731,8 @@ function printReport(ns, serverState, totalStats, cycleCount) {
 
     ns.tprint("-".repeat(60));
     ns.tprint(`  📊 暗网收益报告 [#${cycleCount}]`);
-    ns.tprint(`  🌐 服务器: ${totalServers} 已知, ${authedServers} 已认证, ${activeWorkers} 活跃Worker`);
+    const darkwebOk = ns.scan("home").includes("darkweb");
+    ns.tprint(`  🌐 服务器: ${totalServers} 已知, ${authedServers} 已认证, ${activeWorkers} 活跃Worker  ${darkwebOk ? '✓darkweb' : '✗无darkweb入口'}`);
     ns.tprint(`  🎣 钓鱼: ${totalStats.phishAttempts} 次`);
     ns.tprint(`  🧠 内存释放: ${totalStats.memoryFreed} 次`);
     ns.tprint(`  📦 缓存打开: ${totalStats.cachesOpened} 个`);
