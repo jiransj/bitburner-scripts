@@ -69,8 +69,7 @@ const argsSchema = [
     ['verbose', false],              // 详细日志
     ['phishing-only', false],        // 仅钓鱼模式(快捷)
     ['memory-only', false],          // 仅内存模式(快捷)
-    ['deploy-to-darkweb', true],    // 自动部署到 darkweb 上运行(需Tor)
-    ['deployed', false],            // 内部标记:是否已在 darkweb 上运行
+    ['deploy-to-darkweb', true],    // 连接 darkweb(脚本留在home,玩家进入暗网)
     ['max-workers', 5],              // 同时运行的worker最大数量
     ['worker-threads', 1],           // worker线程数
     ['reserve', 0],                  // 保留资金
@@ -88,37 +87,15 @@ export function autocomplete(data, args) {
 
 /** @param {NS} ns */
 export async function main(ns) {
-    // ⚠️ 必须在 getConfiguration 之前保存原始参数(因为 ns.flags 会消费 ns.args)
-    const originalArgs = [...ns.args];
     const options = getConfiguration(ns, argsSchema);
     disableLogs(ns, ['sleep', 'scan', 'exec', 'scp', 'ls', 'read', 'write', 'rm']);
 
-    // ── 自部署: 自动复制到 darkweb 上运行 ──
-    if (options['deploy-to-darkweb'] && !options['deployed']) {
-        const currentHost = ns.getHostname();
-        // V3 中 ns.scan("home") 不再返回 darkweb，改用 scp 实测能否访问
-        const darkwebReachable = ns.fileExists(SCRIPT_NAME, "darkweb") || // 已有文件
-            (await ns.scp(SCRIPT_NAME, "darkweb", "home")); // 或能复制过去
-
-        if (currentHost !== "darkweb" && darkwebReachable) {
-            ns.tprint("🚀 正在部署到 darkweb ...");
-            // 复制本脚本和 worker 脚本到 darkweb
-            await ns.scp(SCRIPT_NAME, "darkweb", "home");
-            await ns.scp(WORKER_SCRIPT, "darkweb", "home");
-            // 构造传递给 darkweb 实例的参数
-            const passArgs = originalArgs.filter(a => !a.startsWith('--deploy'));
-            passArgs.push('--deployed', 'true');
-            // 在 darkweb 上启动本脚本
-            const pid = ns.exec(SCRIPT_NAME, "darkweb", { temporary: false }, ...passArgs);
-            if (pid > 0) {
-                ns.tprint(`SUCCESS: 已在 darkweb 上启动实例 (PID: ${pid})`);
-                ns.tprint("INFO: 本地(home)实例退出，所有操作由 darkweb 实例执行");
-            } else {
-                ns.tprint("ERROR: 在 darkweb 上启动失败，可能是 RAM 不足");
-            }
-            ns.exit();
-            return;
-        }
+    // ── 连接到 darkweb（把玩家终端移入暗网，ns.dnet 才能工作）──
+    // 注意: darkweb 只有 16GB RAM，脚本无法在上面运行。
+    //       所以脚本留在 home 上，通过 Singularity 把玩家"送"进 darkweb。
+    //       ns.dnet API 使用玩家的终端位置，而非脚本运行位置。
+    if (options['deploy-to-darkweb']) {
+        await tryConnectToDarkweb(ns);
     }
 
     // ── 前置检查 ──
@@ -128,31 +105,18 @@ export async function main(ns) {
         return;
     }
 
-    // 检查暗网可访问性: 用 dnet.probe 测试，而非 ns.scan (V3 中 scan 不返回暗网服务器)
-    let darknetAccessible = false;
-    try {
-        const testProbe = ns.dnet.probe();
-        darknetAccessible = true;
-        ns.print("INFO: ✓ dnet API 可用");
-    } catch (e) {
-        ns.print("WARN: dnet.probe() 不可用，尝试购买 Tor...");
+    // 检查暗网 API 可用性
+    if (!ns.dnet) {
+        ns.tprint("ERROR: 需要 Bitburner v3.0+，未检测到 ns.dnet API");
+        ns.exit();
+        return;
     }
-    if (!darknetAccessible) {
-        try {
-            if (ns.singularity.purchaseTor()) {
-                ns.tprint("SUCCESS: Tor 已购买! 请重新运行脚本");
-                ns.exit();
-                return;
-            }
-        } catch (e) {
-            ns.tprint("WARNING: 无法自动购买 Tor(需 SF4/Singularity API)，请手动购买");
-        }
-        // 如果还是无法访问，可能是 Tor 已购买但尚未连接 darkweb
-        ns.tprint("WARNING: 暗网不可访问。可能原因:");
-        ns.tprint("  - 未购买 Tor 路由器");
-        ns.tprint("  - 未连接 darkweb (终端执行: connect darkweb)");
-        ns.tprint("  - 当前 BitNode 没有暗网功能");
-        // 不退出，让部署阶段再试一次
+    // 测试 probe 是否可用（不阻塞，仅警告）
+    try {
+        ns.dnet.probe();
+    } catch (e) {
+        ns.tprint("WARNING: dnet.probe() 不可用，请确保已连接 darkweb (终端: connect darkweb)");
+        ns.tprint("INFO: 脚本将继续运行，每轮循环会重试探测");
     }
 
     // 检查 WORKER_SCRIPT 是否存在
@@ -450,8 +414,8 @@ async function deployWorkers(ns, serverState, options, totalStats) {
                 if (mode === '') mode = 'all';
             }
 
-            // 复制 worker 脚本到目标服务器(从当前所在服务器复制)
-            await ns.scp(WORKER_SCRIPT, host, ns.getHostname());
+            // 复制 worker 脚本到目标服务器
+            await ns.scp(WORKER_SCRIPT, host, "home");
 
             // 启动 worker
             const pid = ns.exec(
@@ -730,6 +694,44 @@ function generatePasswords(hint, length) {
  */
 function sanitizeHost(host) {
     return host.replace(/[^a-zA-Z0-9_\-]/g, '_');
+}
+
+/**
+ * 通过 Singularity API 连接玩家到 darkweb
+ * 脚本留在 home 上运行，但 ns.dnet API 使用玩家的终端位置
+ * @param {NS} ns
+ * @returns {Promise<boolean>}
+ */
+async function tryConnectToDarkweb(ns) {
+    // 先检查 Tor
+    let hasTor = false;
+    try {
+        // V3 中 ns.scan 不返回 darkweb，尝试用 Singularity 买一次（已买则返回false不扣钱）
+        if (ns.singularity.purchaseTor()) {
+            ns.tprint("SUCCESS: Tor 路由器已购买!");
+            hasTor = true;
+        } else {
+            hasTor = true; // 购买返回 false 说明已拥有
+        }
+    } catch (e) {
+        // 无 SF4，通过是否能 scp 到 darkweb 来判断
+        hasTor = await ns.scp(SCRIPT_NAME, "darkweb", "home").catch(() => false);
+    }
+
+    if (!hasTor) {
+        ns.tprint("WARNING: 未检测到 Tor 路由器，请先购买");
+        return false;
+    }
+
+    // 尝试连接 darkweb
+    try {
+        ns.singularity.connect("darkweb");
+        ns.print("SUCCESS: ✓ 已连接到 darkweb");
+        return true;
+    } catch (e) {
+        ns.tprint("WARNING: 无法自动连接 darkweb(需手动在终端执行: connect darkweb)");
+        return false;
+    }
 }
 
 /**
