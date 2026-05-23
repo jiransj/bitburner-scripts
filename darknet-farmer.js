@@ -715,7 +715,7 @@ async function tryConnectToDarkweb(ns) {
         }
     } catch (e) {
         // 无 SF4，通过是否能 scp 到 darkweb 来判断
-        hasTor = await ns.scp(SCRIPT_NAME, "darkweb", "home").catch(() => false);
+        try { hasTor = await ns.scp(SCRIPT_NAME, "darkweb", "home"); } catch (e2) { hasTor = false; }
     }
 
     if (!hasTor) {
