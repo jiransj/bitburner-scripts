@@ -1,41 +1,44 @@
 /**
- * dark-stockspread.js — 最快刷 XP（多股并行版）
+ * dark-stockspread.js — 极限刷 XP（全股票并行版）
  *
- * 助手脚本用 Promise.all 同时推广多支股票。
- * 每一轮等待时间 = max(8000×600/(600+cha), 200)ms，
- * 但 N 支股票同时等，一轮拿 N 份 XP。
+ * 一次向助手传入全部股票，Promise.all 并行推广。
+ * N 支股票 = N 倍 XP/轮，等待时间不变。
  *
  * 用法:
- *   run dark-stockspread.js AAPL GOOGL MSFT
+ *   run dark-stockspread.js              推广全部 33 支
+ *   run dark-stockspread.js AAPL GOOGL   指定部分
  *
  * @param {NS} ns
  */
 export async function main(ns) {
   const HOST = ns.getHostname();
   const HELPER = "/Temp/_promote.js";
+  const ALL_STOCKS = [
+    "ECP","MGCP","BLD","CLRK","OMTK","FSIG","KGI","FLCM","STM",
+    "DCOMM","HLS","VITA","ICRS","UNV","AERO","OMN","SLRS","GPH",
+    "NVMD","WDS","LXO","RHOC","APHE","SYSC","CTK","NTLK","OMGA",
+    "FNS","JGN","SGC","CTYS","MDYN","TITN",
+  ];
 
   const symbols = ns.args.filter(a => typeof a === "string" && !a.startsWith("--"));
-  if (symbols.length === 0) { ns.print(`用法: run dark-stockspread.js AAPL GOOGL`); return; }
+  if (symbols.length === 0) symbols.push(...ALL_STOCKS);
 
-  // 写助手脚本 — Promise.all 并行推广所有传入的股票
+  // 助手脚本 — Promise.all 并行
   if (!ns.fileExists(HELPER)) {
     ns.write(HELPER,
       `export async function main(ns) { await Promise.all(ns.args.map(s=>ns.dnet.promoteStock(s))); }`, "w");
   }
   await ns.sleep(20);
 
-  const ramPerThread = ns.getScriptRam(HELPER, HOST);
-  ns.print(`[${HOST}] 助手 ${ramPerThread}GB/线程 | 批量推广 ${symbols.join(",")}`);
+  const ramPer = ns.getScriptRam(HELPER, HOST);
+  ns.print(`[${HOST}] 助手 ${ramPer}GB/线程 | ${symbols.length} 支并行 | 目标 X${symbols.length}/轮`);
 
   while (true) {
     const free = ns.getServerMaxRam(HOST) - ns.getServerUsedRam(HOST);
-    const threads = Math.max(1, Math.floor(free / ramPerThread));
+    const threads = Math.max(1, Math.floor(free / ramPer));
 
-    // 把所有股票符号一次传给助手，内部 Promise.all 并行
     const pid = ns.run(HELPER, threads, ...symbols);
     if (pid === 0) { await ns.sleep(50); continue; }
-
     while (ns.isRunning(pid)) await ns.sleep(50);
-    // 一轮跑完，立即下一轮
   }
 }
