@@ -423,12 +423,112 @@ export async function main(ns) {
     ns.print("╚══════════════════════════════════════════════════╝");
   }
 
+  // ===== 异步破解队列：不阻塞主循环 =====
+  // pendingCracks: target → { pid, reporter, safeTarget, startTime }
+  const pendingCracks = new Map();
+  const MAX_CONCURRENT_CRACKS = 3; // 最多同时破解 3 个
+
+  /** 检查 pending 队列中已完成的 worm，处理结果 */
+  async function processCompletedCracks() {
+    const done = [];
+    for (const [target, info] of pendingCracks) {
+      if (!ns.isRunning(info.pid)) done.push([target, info]);
+    }
+    for (const [target, info] of done) {
+      pendingCracks.delete(target);
+      const { reporter, safeTarget } = info;
+
+      // SCP 结果文件 darkweb → home
+      const resultFileOnDarkweb = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
+      const resultFileOnHome = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
+      try { await ns.scp(resultFileOnDarkweb, "home", "darkweb"); } catch {}
+
+      if (!ns.fileExists(resultFileOnHome)) {
+        addLog(`⏰ ${target}: worm 无结果文件`);
+        continue;
+      }
+
+      try {
+        const result = JSON.parse(ns.read(resultFileOnHome));
+        ns.rm(resultFileOnHome);
+
+        if (!result.success) {
+          addLog(`❌ ${target}: 破解失败`);
+          if (result.needAnalysis && result.details) {
+            const nf = REPORT_BASE + "need-" + safeTarget + ".txt";
+            ns.write(nf, JSON.stringify({
+              reporter, host: target,
+              hint: result.details.passwordHint || "",
+              data: result.details.data || "",
+              format: result.details.passwordFormat || "",
+              length: result.details.passwordLength || -1,
+            }), "w");
+          }
+          continue;
+        }
+
+        addLog(`✅ ${target}: 破解成功! 密码=${result.password} (${result.type})`);
+        stats.totalCracked++;
+        if (target) stats.totalNodes++;
+
+        const watchTasks = [
+          { op: "freeMemory", host: target },
+          { op: "exec", script: "dnet-watch.js", target },
+        ];
+        const reporterPwd = knownPasswords[reporter];
+        await dispatchTo(reporter, watchTasks, reporterPwd);
+
+        const cf = REPORT_BASE + "crack-controller-" + safeTarget + ".txt";
+        try { ns.write(cf, JSON.stringify({
+          reporter: "controller", host: target,
+          password: result.password, type: result.type,
+        }), "w"); } catch {}
+      } catch (e) {
+        addLog(`⚠️ ${target}: 结果处理异常: ${e}`);
+      }
+    }
+  }
+
+  /** 从 need-crack 队列启动新的破解（不阻塞，记录到 pendingCracks） */
+  function startNewCracks() {
+    if (pendingCracks.size >= MAX_CONCURRENT_CRACKS) return;
+    const slots = MAX_CONCURRENT_CRACKS - pendingCracks.size;
+
+    const files = ns.ls("home").filter(f => f.startsWith(REPORT_BASE + "need-crack-"));
+    let started = 0;
+    for (const f of files) {
+      if (started >= slots) break;
+      try {
+        const need = JSON.parse(ns.read(f));
+        ns.rm(f);
+        const target = need.host;
+        if (!target || pendingCracks.has(target)) continue;
+
+        if (!ns.fileExists(WORM_SCRIPT, "darkweb")) {
+          if (ns.fileExists(WORM_SCRIPT, "home")) ns.scp(WORM_SCRIPT, "darkweb");
+          else { addLog(`⚠️ ${WORM_SCRIPT} 不存在`); continue; }
+        }
+
+        const safeTarget = target.replace(/[^a-zA-Z0-9]/g, "_");
+        const resultFileOnHome = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
+        if (ns.fileExists(resultFileOnHome)) ns.rm(resultFileOnHome);
+
+        const pid = ns.exec(WORM_SCRIPT, "darkweb", 1, "--target-only", target);
+        if (pid <= 0) { addLog(`⚠️ worm 启动失败 ${target}`); continue; }
+
+        pendingCracks.set(target, { pid, reporter: need.reporter, safeTarget, startTime: Date.now() });
+        addLog(`🔧 ${need.reporter} → worm ${target} (PID=${pid})`);
+        started++;
+      } catch (e) { /* skip bad file */ }
+    }
+  }
+
   let tick = 0;
   while (true) {
-    // 0. 确保监视器存活（darkweb 重建时会杀死旧进程）
+    // 0. 确保监视器存活
     await ensureWatch();
 
-    // 1. 采集并处理蠕虫状态报告
+    // 1. 处理蠕虫状态报告
     for (const f of ns.ls("home").filter(f => f.startsWith(REPORT_BASE + "status-"))) {
       try {
         const r = JSON.parse(ns.read(f));
@@ -457,106 +557,16 @@ export async function main(ns) {
       } catch (e) { ns.rm(f); }
     }
 
-    // 3. 清理 openCache 状态文件
+    // 3. 清理状态文件
     for (const f of ns.ls("home").filter(f =>
       f.startsWith(REPORT_BASE + "openCache-") || f.startsWith(REPORT_BASE + "cache-idle-")
     )) {
       try { ns.rm(f); } catch {}
     }
 
-    // 4. 处理来自 dnet-watch.js 的"需要破解"请求（新流程：watch 不直接调 worm）
-    for (const f of ns.ls("home").filter(f => f.startsWith(REPORT_BASE + "need-crack-"))) {
-      try {
-        const need = JSON.parse(ns.read(f));
-        ns.rm(f);
-        const target = need.host;
-        if (!target) continue;
-        addLog(`🔧 ${need.reporter} 请求破解 ${target}`);
-
-        // 确保 worm 脚本在 darkweb 上存在
-        if (!ns.fileExists(WORM_SCRIPT, "darkweb")) {
-          if (ns.fileExists(WORM_SCRIPT, "home")) {
-            await ns.scp(WORM_SCRIPT, "darkweb");
-          } else {
-            addLog(`⚠️ ${WORM_SCRIPT} 不存在，跳过`);
-            continue;
-          }
-        }
-
-        // 在 darkweb 上执行 worm 破解目标
-        const safeTarget = target.replace(/[^a-zA-Z0-9]/g, "_");
-        const resultFileOnDarkweb = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
-        const resultFileOnHome = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
-
-        // 清除旧结果文件
-        if (ns.fileExists(resultFileOnHome)) ns.rm(resultFileOnHome);
-
-        const pid = ns.exec(WORM_SCRIPT, "darkweb", 1, "--target-only", target);
-        if (pid <= 0) { addLog(`⚠️ worm 启动失败 ${target}`); continue; }
-
-        // 等待 worm 完成（最多 2 分钟）
-        let waited = 0;
-        while (waited < 120000) {
-          await ns.sleep(200);
-          waited += 200;
-          if (!ns.isRunning(pid)) break;
-        }
-        if (ns.isRunning(pid)) { ns.kill(pid); addLog(`⏰ worm 超时 ${target}`); continue; }
-
-        // SCP 结果文件从 darkweb 到 home
-        try {
-          await ns.scp(resultFileOnDarkweb, "home", "darkweb");
-        } catch (e) {
-          addLog(`⚠️ 结果文件 SCP 失败 ${target}: ${e}`);
-          continue;
-        }
-
-        if (!ns.fileExists(resultFileOnHome)) { addLog(`⚠️ 无结果文件 ${target}`); continue; }
-
-        const result = JSON.parse(ns.read(resultFileOnHome));
-        ns.rm(resultFileOnHome);
-
-        if (!result.success) {
-          addLog(`❌ ${target}: 破解失败`);
-          if (result.needAnalysis && result.details) {
-            // 转发给分析引擎
-            const needFile = REPORT_BASE + "need-" + safeTarget + ".txt";
-            ns.write(needFile, JSON.stringify({
-              reporter: need.reporter, host: target,
-              hint: result.details.passwordHint || "",
-              data: result.details.data || "",
-              format: result.details.passwordFormat || "",
-              length: result.details.passwordLength || -1,
-            }), "w");
-          }
-          continue;
-        }
-
-        // 破解成功！
-        addLog(`✅ ${target}: 破解成功! 密码=${result.password} (${result.type})`);
-        stats.totalCracked++;
-        if (target) stats.totalNodes++;
-
-        // 通知 watch 释放内存 + 部署 dnet-watch.js
-        // 先让 watch 执行 freeMemory + exec watch
-        const watchTasks = [
-          { op: "freeMemory", host: target },
-          { op: "exec", script: "dnet-watch.js", target: target },
-        ];
-        // 获取 watch 所在服务器的密码（从之前缓存的或 need 中）
-        const reporterPwd = knownPasswords[need.reporter];
-        await dispatchTo(need.reporter, watchTasks, reporterPwd);
-
-        // 写入 crack 报告以便统计
-        const crackFile = REPORT_BASE + "crack-controller-" + safeTarget + ".txt";
-        try { ns.write(crackFile, JSON.stringify({
-          reporter: "controller", host: target,
-          password: result.password, type: result.type,
-        }), "w"); } catch {}
-      } catch (e) {
-        addLog(`⚠️ need-crack 处理异常: ${e}`);
-      }
-    }
+    // 4. 异步破解队列：先检查已完成的，再启动新的
+    await processCompletedCracks();
+    startNewCracks();
 
     // 5. 处理需要分析的报告
     for (const need of collectNeedReports()) await handleAnalysis(need);
