@@ -427,18 +427,19 @@ export async function main(ns) {
         }
       }
 
-      // 阶段 4: 全感染检测
-      const allInfected = neighbors.every((h) => infectedSet.has(h) || h === MY_HOST);
+      // 阶段 4: 所有邻居是否均已部署 watch（即完全取得管理权限）
+      // 注意：infectedSet 仅表示接触过，必须确认 watch 进程在目标上运行才算攻克
+      const allHaveWatch = neighbors.every((h) => h === MY_HOST || isWatchRunningOn(h));
 
-      if (allInfected) {
+      if (allHaveWatch) {
         allInfectedCount++;
-        ns.print(`[${MY_HOST}] 所有邻居已感染 (连续 ${allInfectedCount} 次)`);
+        ns.print(`[${MY_HOST}] 所有邻居均有 watch (连续 ${allInfectedCount} 次)`);
 
-        // 连续确认后，杀死本服务器上所有 worm（只留 watch）
+        // 连续确认后，才杀掉 worm（未全部攻克前保留 worm 用于继续破解）
         if (allInfectedCount >= 2) {
           const killed = killAllWorms();
           if (killed > 0) {
-            ns.tprint(`🏁 [${MY_HOST}] 全感染，worm 已休眠`);
+            ns.tprint(`🏁 [${MY_HOST}] 全部攻克，worm 已休眠`);
           }
         }
       } else {
@@ -446,7 +447,7 @@ export async function main(ns) {
       }
 
       // 阶段 5: 报告状态
-      reportStatus(neighbors, allInfected);
+      reportStatus(neighbors, allHaveWatch);
     } catch (e) {
       ns.print(`[${MY_HOST}] ⚠️ 主循环异常: ${e}`);
       // 不崩溃，继续下一轮
