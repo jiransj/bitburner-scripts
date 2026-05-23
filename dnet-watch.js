@@ -30,7 +30,7 @@ export async function main(ns) {
   const STOCKMASTER_SCRIPT = "stockmaster.js";
   const REPORT_BASE = "/Temp/dnet-worm-";
   const INFECTED_FILE = "/Temp/dnet-worm-infected.txt";
-  const CHECK_INTERVAL_MS = 8000;
+  const CHECK_INTERVAL_MS = 4000;
 
   // ======================== 持久化状态 ========================
   let infectedSet = new Set();
@@ -392,44 +392,61 @@ export async function main(ns) {
 
       ns.print(`[${MY_HOST}] 探测到 ${neighbors.length} 个邻居`);
 
-      // 阶段 3: 对每个邻居检查 dnet-watch，缺失则部署
+      // 阶段 3: 对每个邻居快速检测 + 部署
       let deployedCount = 0;
       for (const host of neighbors) {
-        // 跳过本机
         if (host === MY_HOST) continue;
 
-        // 检查 watch 是否已在目标上运行
-        if (isWatchRunningOn(host)) {
-          ns.print(`[${MY_HOST}] ${host}: watch 已在运行`);
-          // 确保在 infectedSet 中
-          if (!infectedSet.has(host)) {
-            infectedSet.add(host);
-            saveInfected();
+        // 一次 API 调用同时检测：①是否有 watch 进程 ②是否有会话
+        let hostStatus = null; // 'watch' | 'session' | null
+        try {
+          const procs = ns.ps(host);
+          if (procs.some((p) => p.filename === ns.getScriptName())) {
+            hostStatus = 'watch'; // watch 已在运行
+          } else {
+            hostStatus = 'session'; // 有会话但无 watch
           }
+        } catch {
+          // ns.ps 失败 = 无会话
+          try {
+            const d = ns.dnet.getServerDetails(host);
+            if (d.isOnline && d.hasSession) hostStatus = 'session';
+          } catch {} // 完全无法访问
+        }
+
+        if (hostStatus === 'watch') {
+          // watch 已存活，只需记录
+          if (!infectedSet.has(host)) { infectedSet.add(host); saveInfected(); }
           continue;
         }
 
-        ns.print(`[${MY_HOST}] ${host}: watch 未运行，开始部署`);
+        if (hostStatus === 'session') {
+          // 已有会话但无 watch → 直接部署，跳过破解
+          ns.print(`[${MY_HOST}] ${host}: 有会话无 watch，直接部署`);
+          try {
+            if (await deployWatchTo(host, "已存在会话")) deployedCount++;
+          } catch (e) { ns.print(`[${MY_HOST}] ${host}: 部署异常: ${e}`); }
+          continue;
+        }
 
-        // 确保有会话（必要时破解），返回密码
+        // 无会话 → 需要破解
+        ns.print(`[${MY_HOST}] ${host}: 无会话，开始破解`);
         const sessionPwd = await ensureSession(host);
         if (sessionPwd === null) {
           ns.print(`[${MY_HOST}] ${host}: 无法建立会话，跳过`);
           continue;
         }
-
-        // 部署 watch（传入密码用于 connectToSession）
         try {
-          const deployed = await deployWatchTo(host, sessionPwd);
-          if (deployed) deployedCount++;
-        } catch (e) {
-          ns.print(`[${MY_HOST}] ${host}: 部署 watch 异常: ${e}`);
-        }
+          if (await deployWatchTo(host, sessionPwd)) deployedCount++;
+        } catch (e) { ns.print(`[${MY_HOST}] ${host}: 部署异常: ${e}`); }
       }
 
       // 阶段 4: 所有邻居是否均已部署 watch（即完全取得管理权限）
-      // 注意：infectedSet 仅表示接触过，必须确认 watch 进程在目标上运行才算攻克
-      const allHaveWatch = neighbors.every((h) => h === MY_HOST || isWatchRunningOn(h));
+      const allHaveWatch = neighbors.every((h) => {
+        if (h === MY_HOST) return true;
+        try { return ns.ps(h).some((p) => p.filename === ns.getScriptName()); }
+        catch { return false; }
+      });
 
       if (allHaveWatch) {
         allInfectedCount++;
