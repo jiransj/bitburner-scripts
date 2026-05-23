@@ -21,7 +21,9 @@ export async function main(ns) {
   const REPORT_BASE = "/Temp/dnet-worm-";
 
   ns.disableLog('ALL');
+  ns.tail();
   ns.clearLog();
+  ns.resizeTail(520, 400);
 
   // ── 统计数据 ──
   const stats = {
@@ -42,7 +44,7 @@ export async function main(ns) {
   /** 绘制仪表盘 */
   function drawDashboard() {
     ns.clearLog();
-    const elapsed = ((Date.now() - stats.startTime) / 1000).toFixed(0);
+    const elapsed = Math.floor((Date.now() - stats.startTime) / 1000);
     ns.print("╔══════════════════════════════════════════════════╗");
     ns.print("║       暗网控制中枢 v1.0                         ║");
     ns.print("╠══════════════════════════════════════════════════╣");
