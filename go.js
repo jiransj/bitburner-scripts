@@ -79,23 +79,6 @@ export async function main(ns) {
         ["BBB??", "BB.X?", "B..X?", "BBB??", "?????"], //Pattern# Sphyxis - 2x2 corner contain #GREAT
         ["?WWW?", "W.*.W", "WXXXW", "?????", "?????"], //Take the 3x3 back corner
     ];
-    //从AI抄的Michi 3x3模式（https://github.com/pasky/michi）
-    //X=我 O=对方 x=除对方外任意 o=除我方外任意 .=空 ?=任意 空格=棋盘外
-    const michi3 = [
-        ["XOX", "...", "???"], //hane - 扳
-        ["XO.", "...", "?.?"], //hane - 非切断扳
-        ["XO?", "X..", "o.?"], //magari - 拐
-        [".O.", "X..", "..."], //katatsuke - 尖靠
-        ["XO?", "O.x", "?x?"], //kiri - 切断
-        ["XO?", "O.X", "???"], //kiri - 窥切断
-        ["?X?", "O.O", "xxx"], //de - 出
-        ["OX?", "x.O", "???"], //keima切
-        ["X.?", "O.?", "   "], //边：追
-        ["OX?", "X.O", "   "], //边：挡
-        ["?X?", "o.O", "   "], //边：连
-        ["?XO", "o.o", "   "], //边：下立
-        ["?OX", "X.O", "   "], //边：切
-    ];
 
     // Testing
     //const opponent = ["Slum Snakes", "Tetrads", "Daedalus", "Illuminati"]
@@ -221,20 +204,12 @@ export async function main(ns) {
             if (turn >= 3) {
                 switch (playStyle) {
                     case 0:  //Netburners
-                        if (results = await movePiece(ns, getCaptureMove())) break
-                        if (results = await movePiece(ns, getSecureTerritory())) break
-                        if (results = await movePiece(ns, getKillOrReduce())) break
-                        if (results = await movePiece(ns, getDoubleAtari())) break
-                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getSqueezeEyes())) break
-                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 3, 3, 1, 6))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -244,26 +219,17 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false, 1))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
                         break
                     case 1:  //The Black Hand
-                        if (results = await movePiece(ns, getCaptureMove())) break
-                        if (results = await movePiece(ns, getSecureTerritory())) break
-                        if (results = await movePiece(ns, getKillOrReduce())) break
-                        if (results = await movePiece(ns, getDoubleAtari())) break
-                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getSqueezeEyes())) break
-                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 3, 3, 1, 6))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -272,26 +238,17 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false, 1))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
                         break
                     case 2: //Mr. Mustacio - Slum Snakes
-                        if (results = await movePiece(ns, getCaptureMove())) break
-                        if (results = await movePiece(ns, getSecureTerritory())) break
-                        if (results = await movePiece(ns, getKillOrReduce())) break
-                        if (results = await movePiece(ns, getDoubleAtari())) break
-                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getSqueezeEyes())) break
-                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 3, 3, 1, 6))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -300,26 +257,17 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false, 1))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
                         break
                     case 3: //Daedalus
-                        if (results = await movePiece(ns, getCaptureMove())) break
-                        if (results = await movePiece(ns, getSecureTerritory())) break
-                        if (results = await movePiece(ns, getKillOrReduce())) break
-                        if (results = await movePiece(ns, getDoubleAtari())) break
-                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getSqueezeEyes())) break
-                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3, 1, 6))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -328,26 +276,17 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false, 1))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
                         break
                     case 4: //Tetrads
-                        if (results = await movePiece(ns, getCaptureMove())) break
-                        if (results = await movePiece(ns, getSecureTerritory())) break
-                        if (results = await movePiece(ns, getKillOrReduce())) break
-                        if (results = await movePiece(ns, getDoubleAtari())) break
-                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getSqueezeEyes())) break
-                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -356,26 +295,17 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat(),)) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
                         break
                     case 5: //Illum
-                        if (results = await movePiece(ns, getCaptureMove())) break
-                        if (results = await movePiece(ns, getSecureTerritory())) break
-                        if (results = await movePiece(ns, getKillOrReduce())) break
-                        if (results = await movePiece(ns, getDoubleAtari())) break
-                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getSqueezeEyes())) break
-                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -383,26 +313,17 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
                         break
                     case 6: //??????
-                        if (results = await movePiece(ns, getCaptureMove())) break
-                        if (results = await movePiece(ns, getSecureTerritory())) break
-                        if (results = await movePiece(ns, getKillOrReduce())) break
-                        if (results = await movePiece(ns, getDoubleAtari())) break
-                        if (results = await movePiece(ns, getSaveChain())) break
                         if (results = await movePiece(ns, getRandomCounterLib())) break
                         if (results = await movePiece(ns, getRandomLibAttack(88))) break
                         if (results = await movePiece(ns, getRandomLibDefend())) break
                         if (results = await moveSnakeEyes(ns, getSnakeEyes(6))) break
                         if (results = await movePiece(ns, getAggroAttack(2, 2, 2))) break
                         if (results = await movePiece(ns, disruptEyes())) break
-                        if (results = await movePiece(ns, getLiveGroupAttack())) break
-                        if (results = await movePiece(ns, getSqueezeEyes())) break
-                        if (results = await movePiece(ns, getSystematicSurround())) break
                         if (results = await movePiece(ns, getDefPattern())) break
                         if (results = await movePiece(ns, getAggroAttack(3, 4, 3))) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1))) break
@@ -411,7 +332,6 @@ export async function main(ns) {
                         if (results = await movePiece(ns, getRandomExpand())) break
                         if (results = await movePiece(ns, getRandomBolster(2, 1, false))) break
                         if (results = await movePiece(ns, getRandomLibAttack())) break
-                        if (results = await movePiece(ns, getCreateEyeMove())) break
                         if (results = await movePiece(ns, getRandomStrat())) break
                         ns.print("Turn Passed")
                         results = await ns.go.passTurn()
@@ -660,390 +580,6 @@ export async function main(ns) {
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
-    function getCaptureMove() {
-        //最高优先级：吃棋！
-        //① 先找能吃2子以上的（非打劫，安全吃）
-        //② 再找能吃1子的（可能打劫，后选）
-        const size = board[0].length;
-        let bestNonKo = null; //{x,y,size}
-        let bestKo = null;    //1子打劫
-        const moves = getAllValidMoves(true);
-        for (const [x, y] of moves) {
-            if (contested[x][y] === "X" || validLibMoves[x][y] !== -1) continue
-
-            let bestCaptureSize = 0;
-            let totalCaptureCount = 0;
-            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
-            for (const [nx, ny] of checks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size &&
-                    board[nx][ny] === 'O' && validLibMoves[nx][ny] === 1) {
-                    const chainVal = getChainValue(nx, ny, 'O');
-                    if (chainVal > bestCaptureSize) bestCaptureSize = chainVal;
-                    totalCaptureCount += chainVal;
-                }
-            }
-
-            if (bestCaptureSize >= 2) {
-                //吃2子以上：安全吃，不是打劫，最高优先级
-                if (!bestNonKo || bestCaptureSize > bestNonKo.size) {
-                    bestNonKo = { x, y, size: bestCaptureSize, total: totalCaptureCount };
-                }
-            } else if (bestCaptureSize === 1 && totalCaptureCount === 1) {
-                //吃1子：可能是打劫，记作备选
-                if (!bestKo) bestKo = { x, y };
-            }
-        }
-
-        if (bestNonKo) return { coords: [bestNonKo.x, bestNonKo.y], msg: 'Capture: ' + bestNonKo.size };
-        if (bestKo) return { coords: [bestKo.x, bestKo.y], msg: 'Capture Ko: 1' };
-        return [];
-    }
-    /** @param {NS} ns
-     * @returns {{coords: number[]; msg: string;}} */
-    function getSecureTerritory() {
-        //圈地三原则：
-        //① 敌方打入我方领地 → 攻击驱逐（最高优）
-        //② 领地边界薄弱点 → 补强防守
-        //③ 安全前提下 → 小飞/大飞拓展
-        const size = board[0].length;
-        let bestMove = null;
-        let bestScore = 0;
-        let moveType = '';
-        const moves = getAllValidMoves(true);
-        for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y])) continue
-
-            //=== ① 应对打入：敌方棋子在我方控制区内 ===
-            //检查邻接的对方棋子是否在我方领地内
-            let invaderSize = 0;
-            let borderOppSize = 0;
-            const seenInvaders = new Set();
-            for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                    const cid = chains[nx][ny];
-                    if (!seenInvaders.has(cid)) {
-                        seenInvaders.add(cid);
-                        //检查这个对方棋链是否被我方领地包围
-                        let surroundedByX = 0;
-                        for (const [cx, cy] of [[nx - 1, ny], [nx + 1, ny], [nx, ny - 1], [nx, ny + 1]]) {
-                            if (cx >= 0 && cx < size && cy >= 0 && cy < size && board[cx][cy] === 'X') surroundedByX++;
-                        }
-                        if (surroundedByX >= 2) {
-                            invaderSize += getChainValue(nx, ny, 'O');
-                        } else {
-                            borderOppSize += getChainValue(nx, ny, 'O');
-                        }
-                    }
-                }
-            }
-            if (invaderSize > 0) {
-                //敌方打入！必须攻击驱逐，评分极高
-                const score = invaderSize * 200;
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = [x, y];
-                    moveType = 'Defend';
-                }
-                continue; //入侵应对优先于其他
-            }
-
-            //=== ② 边界补强：我方领地边界有对方棋子贴近 ===
-            if (borderOppSize > 0) {
-                //对方靠近我方领地边界，需要补强防守
-                const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
-                const posBonus = distEdge === 2 ? 2 : distEdge === 3 ? 1.5 : 1;
-                const score = borderOppSize * 30 * posBonus;
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = [x, y];
-                    moveType = 'Guard';
-                }
-                continue;
-            }
-
-            //=== ③ 安全拓展：从AI抄的getExpansionMoveArray逻辑 ===
-            //AI做法：先找4面全空的点（开阔地中央），没有再找双方交界点
-            const distEdge = Math.min(x, y, size - 1 - x, size - 1 - y);
-            if (distEdge < 1) continue
-
-            //判断是否为"开阔地中央"：4个正方向全是空的
-            let allEmpty = true;
-            for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] !== '.') { allEmpty = false; break; }
-            }
-
-            //判断是否为"双方交界点"：邻接的空位链同时接触我和对方
-            //简化版：检查contested[x][y] === '?'（本来就是争夺区）
-            const isDisputed = contested[x][y] === '?';
-
-            //AI说：有开阔地优先占开阔地，没有才占交界
-            if (!allEmpty && !isDisputed) continue
-
-            //飞形状加分（小飞/大飞/拆二）
-            let shapeScore = 0;
-            for (const [dx, dy] of [[-2, -1], [-2, 1], [2, -1], [2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2],
-                [-3, -1], [-3, 1], [3, -1], [3, 1], [-1, -3], [-1, 3], [1, -3], [1, 3]]) {
-                const nx = x + dx, ny = y + dy;
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                    const md = Math.abs(dx) + Math.abs(dy);
-                    shapeScore = Math.max(shapeScore, md === 3 ? 10 : 6);
-                }
-            }
-            if (shapeScore === 0) {
-                for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) {
-                    const nx = x + dx, ny = y + dy;
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                        if (board[x + dx / 2][y + dy / 2] === '.') { shapeScore = 4; break; }
-                    }
-                }
-            }
-
-            //前方开阔度（沿飞方向继续看）
-            let openAhead = 0;
-            for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
-                for (let s = 1; s <= 3; s++) {
-                    const ax = x + dx * s, ay = y + dy * s;
-                    if (ax >= 0 && ax < size && ay >= 0 && ay < size) {
-                        if (board[ax][ay] === '.') openAhead++;
-                        else if (board[ax][ay] === 'O') openAhead += 0.5;
-                        else break;
-                    } else break;
-                }
-            }
-
-            //评分：AI公式 = 开阔地×100 + 飞加成 + 前方视野
-            //开阔地中央价值极高，交界点次之
-            const areaScore = allEmpty ? 100 : 30;
-            const posBonus = distEdge === 2 ? 3 : distEdge === 3 ? 2.5 : 2;
-            const score = (areaScore + shapeScore * 3 + openAhead) * posBonus;
-            if (score > bestScore) {
-                bestScore = score;
-                bestMove = [x, y];
-                moveType = allEmpty ? 'Open' : 'Expand';
-            }
-        }
-        return bestMove ? { coords: bestMove, msg: moveType + ': ' + Math.round(bestScore) } : [];
-    }
-    /** @param {NS} ns
-     * @returns {{coords: number[]; msg: string;}} */
-    function getKillOrReduce() {
-        //从AI抄的getEyeBlockingMove+getSurroundMove混合策略
-        //① 先找对方"唯一做两只眼的点"→堵住！AI最高优
-        //② 找不到则找眼值<2的弱棋→杀
-        //③ 已活棋→限制圈地（评分=1，几乎不选）
-        const killMoves = [];
-        const blockMoves = []; //堵眼候选
-        const size = board[0].length;
-        const moves = getAllValidMoves(true);
-        for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y])) continue
-
-            let oppSize = 0, oppEyes = 0;
-            const seenChains = new Set();
-            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
-            for (const [nx, ny] of checks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                    const cid = chains[nx][ny];
-                    if (!seenChains.has(cid)) {
-                        seenChains.add(cid);
-                        oppSize += getChainValue(nx, ny, 'O');
-                        oppEyes += getEyeValue(nx, ny, 'O');
-                    }
-                }
-            }
-            if (oppSize === 0) continue;
-
-            //AI关键：模拟落子后对方的眼值变化
-            //如果我落子后对方眼值从刚好<2变成>=2→这手棋在帮对方做眼，绝对不能下！
-            //如果我落子后对方眼值刚好<2且对方没别的地方能做眼→堵眼成功！
-            const walls = checks.filter(([nx, ny]) =>
-                nx < 0 || nx >= size || ny < 0 || ny >= size ||
-                (board[nx]?.[ny] === 'O')
-            ).length;
-            const eyeAfter = oppEyes + (walls >= 3 ? 2 : walls >= 2 ? 1 : 0);
-
-            //AI眼位分析
-            if (oppEyes >= 2) {
-                //已活棋，不纠缠
-                continue;
-            } else if (oppEyes < 2 && eyeAfter >= 2) {
-                //我方落子后对方眼值反而≥2→送眼！绝对不下
-                continue;
-            } else if (oppEyes >= 1 && oppEyes < 2 && walls >= 3) {
-                //对方差一点做活，我方填掉最后一个口→"唯一做眼点"！
-                blockMoves.push({ x, y, score: oppSize * 200 });
-            } else {
-                //一般杀棋：对方眼值低，紧气
-                const ownNewLibs = getSurroundLibs(x, y, 'X');
-                //AI安全规则：ownLibs<=2且对方>2气→送死
-                let oppMinLib = 999;
-                for (const [nx, ny] of checks) {
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                        if (validLibMoves[nx][ny] < oppMinLib) oppMinLib = validLibMoves[nx][ny];
-                    }
-                }
-                if (ownNewLibs <= 2 && oppMinLib > 2) continue
-                killMoves.push({ x, y, score: oppSize * oppSize * 10 / (oppMinLib + 1) });
-            }
-        }
-
-        const pick = (arr) => {
-            if (!arr.length) return null;
-            arr.sort((a, b) => b.score - a.score);
-            return arr[Math.floor(Math.random() * Math.min(arr.length, 3))];
-        };
-        let best = pick(blockMoves) || pick(killMoves);
-        return best ? { coords: [best.x, best.y], msg: best.score > 100 ? 'BlockEye: ' + Math.round(best.score) : 'Kill: ' + Math.round(best.score) } : [];
-    }
-    /** @param {NS} ns
-     * @returns {{coords: number[]; msg: string;}} */
-    function getDoubleAtari() {
-        //双打吃：一手棋同时让两块对方棋链被打吃（变1气）
-        //对方只能救一块，另一块必死——这是围棋中最强的战术之一
-        const moveOptions = [];
-        const size = board[0].length;
-        let highScore = 0;
-        const moves = getAllValidMoves(true);
-        for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
-
-            //统计四周的对方棋链
-            const threatenedChains = []; //{chainId, size, libs}
-            const seenChains = new Set();
-            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
-            for (const [nx, ny] of checks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                    const chainId = chains[nx][ny];
-                    if (!seenChains.has(chainId)) {
-                        seenChains.add(chainId);
-                        const cSize = getChainValue(nx, ny, 'O');
-                        //落子后这口气被占，对方气数-1
-                        const newLibs = validLibMoves[nx][ny] - 1;
-                        threatenedChains.push({ size: cSize, newLibs });
-                    }
-                }
-            }
-
-            //双打吃核心条件：同时威胁至少2条对方棋链
-            //并且其中至少2条在落子后会变成<=1气（被打吃或提掉）
-            if (threatenedChains.length >= 2) {
-                const atariCount = threatenedChains.filter(c => c.newLibs <= 1).length;
-                if (atariCount >= 2) {
-                    //评分：威胁的棋链越多越大越好
-                    const totalSize = threatenedChains.reduce((s, c) => s + c.size, 0);
-                    const score = atariCount * totalSize * totalSize;
-                    if (score > highScore) {
-                        highScore = score;
-                        moveOptions.length = 0;
-                        moveOptions.push([x, y]);
-                    } else if (score === highScore) {
-                        moveOptions.push([x, y]);
-                    }
-                }
-            }
-        }
-        const idx = Math.floor(Math.random() * moveOptions.length);
-        return moveOptions[idx] ? { coords: moveOptions[idx], msg: 'Double Atari: ' + highScore } : [];
-    }
-    /** @param {NS} ns
-     * @returns {{coords: number[]; msg: string;}} */
-    function getSaveChain() {
-        //优先救活自己的长条棋：有潜力做眼但还没活的棋链
-        //评分：棋链大小×紧迫度（气少）×眼位潜力
-        //同时检查切断对方死棋和活棋的接应
-        const size = board[0].length;
-        let bestMove = null;
-        let bestScore = 0;
-        let isCut = false;
-        const moves = getAllValidMoves(true);
-        for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
-
-            //检查连接的己方棋链
-            let friendlyChainSize = 0;
-            let friendlyChainLibs = 999;
-            let friendlyEyeValue = 0;
-            //检查连接的对方棋链
-            let oppWeakSize = 0; //眼值<2的弱棋
-            let oppStrongSize = 0; //眼值≥2的活棋
-            const seenFriendly = new Set();
-            const seenOpp = new Set();
-            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
-            for (const [nx, ny] of checks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size) {
-                    if (board[nx][ny] === 'X') {
-                        const cid = chains[nx][ny];
-                        if (!seenFriendly.has(cid)) {
-                            seenFriendly.add(cid);
-                            const cSize = getChainValue(nx, ny, 'X');
-                            if (cSize > friendlyChainSize) friendlyChainSize = cSize;
-                            if (validLibMoves[nx][ny] < friendlyChainLibs) friendlyChainLibs = validLibMoves[nx][ny];
-                            friendlyEyeValue += getEyeValue(nx, ny, 'X');
-                        }
-                    } else if (board[nx][ny] === 'O') {
-                        const cid = chains[nx][ny];
-                        if (!seenOpp.has(cid)) {
-                            seenOpp.add(cid);
-                            const cSize = getChainValue(nx, ny, 'O');
-                            const eVal = getEyeValue(nx, ny, 'O');
-                            if (eVal < 2) oppWeakSize += cSize;
-                            else oppStrongSize += cSize;
-                        }
-                    }
-                }
-            }
-
-            //① 救己方棋：连接到大棋链 + 还没活(眼值<2) + 气有限
-            if (friendlyChainSize >= 3 && friendlyEyeValue < 2 && friendlyChainLibs <= 6) {
-                const urgency = friendlyChainLibs <= 2 ? 100 : friendlyChainLibs <= 4 ? 30 : 5;
-                const score = friendlyChainSize * urgency * (friendlyEyeValue + 1);
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = [x, y];
-                    isCut = false;
-                }
-            }
-
-            //② 切断接应：落子同时碰到对方弱棋和活棋 → 切断弱棋的逃跑路线！
-            if (oppWeakSize >= 2 && oppStrongSize >= 2) {
-                const score = oppWeakSize * 50;
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = [x, y];
-                    isCut = true;
-                }
-            }
-
-            //③ 逃孤子：我方小棋链(1-2子)被打吃时
-            //   如果对方吃这个子可能做眼（对方还没2只眼），必须逃！
-            if (friendlyChainSize <= 2 && friendlyChainSize >= 1 && friendlyChainLibs <= 2) {
-                //检查是否有对方棋链正要吃我们（对方1气，邻接我们）
-                let oppThreatensWithEye = false;
-                for (const [nx, ny] of checks) {
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O' && validLibMoves[nx][ny] === 1) {
-                        //这个对方棋链吃我们之后会不会获得眼位？
-                        const eyeVal = getEyeValue(nx, ny, 'O');
-                        //对方还没2只眼+吃我们能增加眼值→必须逃
-                        if (oppStrongSize < 2 && eyeVal > 0) oppThreatensWithEye = true;
-                    }
-                }
-                if (oppThreatensWithEye) {
-                    const score = 80 + friendlyChainLibs * 10; //逃孤！
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestMove = [x, y];
-                        isCut = false;
-                    }
-                }
-            }
-        }
-        if (bestMove) {
-            return { coords: bestMove, msg: isCut ? 'Cut: ' + bestScore : 'Save: ' + bestScore };
-        }
-        return [];
-    }
-    /** @param {NS} ns
-     * @returns {{coords: number[]; msg: string;}} */
     function getRandomLibAttack(minKilled = 1) {
         const moveOptions = []
         const size = board[0].length
@@ -1076,8 +612,7 @@ export async function main(ns) {
             const enemyLibs = getSurroundLibs(x, y, "O")
             if (count === 0 || (chains < minKilled && enemyLibs <= 1)) continue
 
-            //平方权重：优先吃大棋！10子棋链得分100，2子棋链得分4，差距25倍
-            const result = count * chains * chains
+            const result = count * chains
             if (result > highValue) {
                 moveOptions.length = 0
                 moveOptions.push([x, y])
@@ -1113,40 +648,8 @@ export async function main(ns) {
                 if (y > 0 && validLibMoves[x][y - 1] === 1 && board[x][y - 1] === "X") count += getChainValue(x, y - 1, "X")
                 if (y < size - 1 && validLibMoves[x][y + 1] === 1 && board[x][y + 1] === "X") count += getChainValue(x, y + 1, "X")
                 if (count === 0 || count < savedMin) continue
-
-                //判断落子后能否获得足够的气：不希望在边上无意义地"爬"
-                //如果落子在棋盘边缘（x=0/最大 或 y=0/最大），且surround<3（总气量提升很小）
-                //且要救的棋链较小（<5子），说明是在边上爬，放弃
-                const onEdge = (x === 0 || x === size - 1 || y === 0 || y === size - 1)
-                if (onEdge && surround < 3) {
-                    let smallChain = true
-                    if (x > 0 && board[x - 1][y] === 'X' && getChainValue(x - 1, y, 'X') >= 5) smallChain = false
-                    if (x < size - 1 && board[x + 1][y] === 'X' && getChainValue(x + 1, y, 'X') >= 5) smallChain = false
-                    if (y > 0 && board[x][y - 1] === 'X' && getChainValue(x, y - 1, 'X') >= 5) smallChain = false
-                    if (y < size - 1 && board[x][y + 1] === 'X' && getChainValue(x, y + 1, 'X') >= 5) smallChain = false
-                    if (smallChain) continue //边上的小棋链，爬了也是死，放弃
-                }
-
-                //防送死检查：落子后新棋子自身必须有至少1口"独立气"
-                //如果四周全是对方棋子+1气己方棋，落子=白送
-                let hasOwnLiberty = false
-                if (x > 0 && board[x - 1][y] === '.') hasOwnLiberty = true
-                if (x < size - 1 && board[x + 1][y] === '.') hasOwnLiberty = true
-                if (y > 0 && board[x][y - 1] === '.') hasOwnLiberty = true
-                if (y < size - 1 && board[x][y + 1] === '.') hasOwnLiberty = true
-                //例外：如果能提掉对方棋子，即使自己没有独立气也是合法好棋
-                if (!hasOwnLiberty) {
-                    let canCapture = false
-                    if (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) canCapture = true
-                    if (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) canCapture = true
-                    if (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) canCapture = true
-                    if (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1) canCapture = true
-                    if (!canCapture) continue //既没有气也提不了子 -> 送死，跳过
-                }
-
                 //Just HOW effective will this move be?  Counter attack if we can.
-                //平方权重：优先救大棋！大龙价值远高于小链
-                count = count * count * surround
+                count *= surround
 
                 if (count > highValue) {
                     moveOptions.length = 0
@@ -1284,8 +787,6 @@ export async function main(ns) {
             const surroundLibs = getSurroundLibs(x, y, "X")
             const enemySurroundLibs = getSurroundLibs(x, y, "O")
             if (contested[x][y] !== "?" || surroundLibs <= 2 || createsLib(x, y, "X") || enemySurroundLibs <= 1) continue
-            //最边上一线几乎总是坏棋，跳过
-            if (x === 0 || x === size - 1 || y === 0 || y === size - 1) continue
             let count = 0
             //We are only checking up, down, left and right.  Don't expand if you're surrounded by friendlies
             if (x > 0 && board[x - 1][y] === "X") count++
@@ -1299,9 +800,7 @@ export async function main(ns) {
             const myEyes = getEyeValueFull(x, y, "X") + 1
             const enemies = getSurroundEnemiesFull(x, y) + 1
             const freeSpace = getFreeSpace(x, y)
-            //贴边惩罚：最边上一圈(x=0/max,y=0/max)的落子价值极低，评分压到接近0
-            const edgePenalty = (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2) ? 0.05 : 1
-            const rank = myEyes * enemySurroundLibs * enemies * enemySurroundChains * freeSpace * surroundSpace * edgePenalty
+            const rank = myEyes * enemySurroundLibs * enemies * enemySurroundChains * freeSpace * surroundSpace
 
             if (rank > highValue) {
                 moveOptions.length = 0
@@ -1369,12 +868,8 @@ export async function main(ns) {
                 total += down
             }
             if (count <= 0) continue
-            //防爬边：在棋盘边缘且连接的棋链小（<5子），延申只会送死
-            if ((x === 0 || x === size - 1 || y === 0 || y === size - 1) && total < 5) continue
             const surroundMulti = getSurroundLibSpread(x, y, "X")
-            //贴边惩罚：最边两排的落子价值极低，不让AI贴边走
-            const edgePenalty = (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2) ? 0.05 : 1
-            const rank = total * count * surroundMulti * edgePenalty
+            const rank = total * count * surroundMulti
             if (rank > highValue) {
                 moveOptions.length = 0
                 moveOptions.push([x, y])
@@ -1591,7 +1086,7 @@ export async function main(ns) {
      * @returns {{coords: number[]; msg: string;}} */
     function getRandomStrat() {
         const moveOptions = []
-        let moveOptions2 = []
+        const moveOptions2 = []
         const size = board[0].length
 
         // Look through all the points on the board
@@ -1602,8 +1097,6 @@ export async function main(ns) {
             let isSupport = ((x > 0 && board[x - 1][y] === "X" && validLibMoves[x - 1][y] >= 1) || (x < size - 1 && board[x + 1][y] === "X" && validLibMoves[x + 1][y] >= 1) || (y > 0 && board[x][y - 1] === "X" && validLibMoves[x][y - 1] >= 1) || (y < size - 1 && board[x][y + 1] === "X" && validLibMoves[x][y + 1] >= 1)) ? true : false
             let isAttack = ((x > 0 && board[x - 1][y] === "O" && validLibMoves[x - 1][y] >= 2) || (x < size - 1 && board[x + 1][y] === "O" && validLibMoves[x + 1][y] >= 2) || (y > 0 && board[x][y - 1] === "O" && validLibMoves[x][y - 1] >= 2) || (y < size - 1 && board[x][y + 1] === "O" && validLibMoves[x][y + 1] >= 2)) ? true : false
 
-            //最边上一线的落子几乎总是坏棋，直接跳过
-            if (x === 0 || x === size - 1 || y === 0 || y === size - 1) continue
             const surround = getSurroundSpace(x, y)
             if (isSupport || isAttack) {
                 if (surround > bestRank) {
@@ -1621,30 +1114,14 @@ export async function main(ns) {
         }
         // Choose one of the found moves at random
         const randomIndex = Math.floor(Math.random() * moveOptions.length);
-        if (moveOptions[randomIndex]) return {
+        const randomIndex2 = Math.floor(Math.random() * moveOptions2.length);
+        return moveOptions[randomIndex] ? {
             coords: moveOptions[randomIndex],
             msg: "Random Safe"
-        }
-        //"Random Unsafe"路径：必须检查气，不能在角落里无气送死
-        //打乱顺序后遍历，找到第一个安全的落子
-        moveOptions2 = moveOptions2.sort(() => Math.random() - Math.random())
-        for (const [x, y] of moveOptions2) {
-            //安全检查：落子点至少有一个空邻位（有自己的气）
-            let safe = false
-            if (x > 0 && board[x - 1][y] === '.') safe = true
-            else if (x < size - 1 && board[x + 1][y] === '.') safe = true
-            else if (y > 0 && board[x][y - 1] === '.') safe = true
-            else if (y < size - 1 && board[x][y + 1] === '.') safe = true
-            //例外：能提子也算安全
-            if (!safe) {
-                if (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) safe = true
-                else if (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) safe = true
-                else if (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) safe = true
-                else if (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1) safe = true
-            }
-            if (safe) return { coords: [x, y], msg: "Random Unsafe (safe checked)" }
-        }
-        return []
+        } : moveOptions2[randomIndex2] ? {
+            coords: moveOptions2[randomIndex2],
+            msg: "Random Unsafe"
+        } : []
     }
     /** @param {NS} ns
      * @returns {{coords: number[]; msg: string;}} */
@@ -1785,7 +1262,6 @@ export async function main(ns) {
     function getDefPattern() {
         let def = []
         def.push(...def5)
-        def.push(...michi3) //从AI抄的Michi模式
 
         const moves = getAllValidMoves()
         for (const [x, y] of moves) {
@@ -1821,370 +1297,11 @@ export async function main(ns) {
         return []
     }
     /** @param {NS} ns
-     * @returns {{coords: number[]; msg: string;}} */
-    function getCreateEyeMove() {
-        //Illuminati AI造眼逻辑：
-        //  ① 只考虑还没活（眼值<2）且气有限的棋链——已经活的不用管
-        //  ② 在该棋链的气位中，找围墙≥2面+空≥1个的候选点
-        //  ③ 评分：造出第2只眼（活棋）> 造第1只眼 > 一般围空
-        //  ④ 气越少越紧迫优先做眼
-        const size = board[0].length;
-        let bestMove = null;
-        let bestScore = -1;
-        let createsLife = false;
-        const moves = getAllValidMoves();
-        for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y])) continue
-
-            //检查四周的己方棋链
-            let targetChainSize = 0;
-            let targetChainLibs = 999;
-            let targetEyeValue = 0;
-            let connectedStones = 0;
-            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
-            for (const [nx, ny] of checks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                    connectedStones++;
-                    const cSize = getChainValue(nx, ny, 'X');
-                    if (cSize > targetChainSize) targetChainSize = cSize;
-                    if (validLibMoves[nx][ny] < targetChainLibs) targetChainLibs = validLibMoves[nx][ny];
-                    targetEyeValue += getEyeValue(nx, ny, 'X');
-                }
-            }
-            //必须连接到己方棋子
-            if (connectedStones === 0) continue
-
-            //Illuminati核心：跳过已经活了的棋（眼值≥2）
-            if (targetEyeValue >= 2) continue
-
-            //统计围墙数（己方+边界）
-            let walls = 0;
-            let emptyAdj = 0;
-            for (const [nx, ny] of checks) {
-                if (nx < 0 || nx >= size || ny < 0 || ny >= size) walls++;
-                else if (board[nx][ny] === 'X') walls++;
-                else if (board[nx][ny] === '.') emptyAdj++;
-            }
-
-            //Illuminati条件：至少2面围墙+至少1个空位（眼位本身）
-            if (walls < 2 || emptyAdj < 1) continue
-
-            //检查斜对角：超过2个对方棋子会切段连接使眼变假
-            let diagOpp = 0;
-            const diagChecks = [[x - 1, y - 1], [x - 1, y + 1], [x + 1, y - 1], [x + 1, y + 1]];
-            for (const [nx, ny] of diagChecks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') diagOpp++;
-            }
-            //中央（4个正方向都可用）最多1个斜对角对方，边角可放宽
-            const central = checks.every(([nx, ny]) => nx >= 0 && nx < size && ny >= 0 && ny < size)
-            if (central && diagOpp > 1) continue
-            if (!central && diagOpp > 2) continue
-
-            //模拟落子后的眼值变化
-            //简化版：检查此点造眼后，当前棋链能否多一只眼
-            const newEyeValue = targetEyeValue + (walls >= 3 ? 2 : 1);
-            const willBeAlive = newEyeValue >= 2; //造出第2只眼=活棋！
-            const urgency = targetChainLibs <= 2 ? 100 : targetChainLibs <= 4 ? 10 : 1;
-
-            //评分：造活>造眼>普通，气越少越紧迫
-            let score;
-            if (willBeAlive && targetEyeValue < 2) {
-                score = urgency * targetChainSize * 1000; //创造活棋！最高优先级
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = [x, y];
-                    createsLife = true;
-                }
-            } else if (targetEyeValue < 1) {
-                score = urgency * targetChainSize * 100; //造第1只眼
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = [x, y];
-                    createsLife = false;
-                }
-            } else {
-                score = urgency * walls * targetChainSize; //加强眼位
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = [x, y];
-                    createsLife = false;
-                }
-            }
-        }
-        return bestMove ? {
-            coords: bestMove,
-            msg: createsLife ? 'Make Alive: ' + bestScore : 'Create Eye: ' + bestScore
-        } : [];
-    }
-    /** @param {NS} ns
-     * @returns {{coords: number[]; msg: string;}} */
-    function getLiveGroupAttack() {
-        //活棋进攻：当己方棋块已有两只眼（活棋），以此为基地激进扩张
-        //活棋是安全的进攻基地——对方提不掉，可以放心向外发展
-        //支持两种拓展模式：
-        //  ① 紧贴(1格)：紧邻活棋落子，稳固
-        //  ② 跳(2格)：从活棋跳出2格拓展，中间空位确保可以连回
-        const moveOptions = [];
-        const size = board[0].length;
-        let highValue = 0;
-        const moves = getAllValidMoves(true);
-        for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y]) || createsLib(x, y, 'X')) continue
-
-            let liveGroupEyes = 0;
-            let liveGroupSize = 0;
-            let attackValue = 0;
-
-            //① 检查紧贴(1格)邻接的活棋
-            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
-            for (const [nx, ny] of checks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X') {
-                    const eyeVal = getEyeValue(nx, ny, 'X');
-                    if (eyeVal >= 2) {
-                        liveGroupEyes += eyeVal;
-                        liveGroupSize += getChainValue(nx, ny, 'X');
-                    }
-                }
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                    attackValue += getChainValue(nx, ny, 'O');
-                }
-            }
-
-            //② 检查"跳"(2格)：从活棋跳出2格，中间为空
-            let jumpBonus = 0;
-            const jumpDirs = [[-2, 0, -1, 0], [2, 0, 1, 0], [0, -2, 0, -1], [0, 2, 0, 1]];
-            for (const [dx, dy, mx, my] of jumpDirs) {
-                const nx = x + dx, ny = y + dy;
-                const midX = x + mx, midY = y + my;
-                //跳的目标位置有活棋，中间为空（路径畅通）
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size &&
-                    midX >= 0 && midX < size && midY >= 0 && midY < size &&
-                    board[nx][ny] === 'X' && board[midX][midY] === '.') {
-                    const eyeVal = getEyeValue(nx, ny, 'X');
-                    if (eyeVal >= 2) {
-                        liveGroupEyes += eyeVal;
-                        liveGroupSize += getChainValue(nx, ny, 'X');
-                        jumpBonus = 3; //跳拓得高分，一次占两格
-                    }
-                }
-            }
-
-            //只有从活棋（眼值>=2）出发的扩张才考虑
-            if (liveGroupEyes < 2 || liveGroupSize < 2) continue
-
-            //评分：活棋安全系数×攻击价值×跳拓加分
-            const baseScore = (attackValue + 1) * 10 * liveGroupSize;
-            const score = baseScore * (jumpBonus > 0 ? jumpBonus : 1);
-            if (score > highValue) {
-                highValue = score;
-                moveOptions.length = 0;
-                moveOptions.push([x, y]);
-            } else if (score === highValue) {
-                moveOptions.push([x, y]);
-            }
-        }
-        const randomIndex = Math.floor(Math.random() * moveOptions.length);
-        return moveOptions[randomIndex] ? {
-            coords: moveOptions[randomIndex],
-            msg: 'Live Attack: ' + highValue
-        } : [];
-    }
-    /** @param {NS} ns
-     * @returns {{coords: number[]; msg: string;}} */
-    function getSqueezeEyes() {
-        //Illuminati AI核心挤眼战术：找到对方做眼的关键点，抢先占住
-        //如果对方只有唯一一个能做出两只眼的点，不惜一切代价堵住！
-        //如果对方眼值低（<2），缩小其眼位空间逼死
-        const squeezeMoves = [];
-        const size = board[0].length;
-        let highScore = 0;
-        let criticalBlock = null; //唯一能做出两只眼的点
-        const moves = getAllValidMoves();
-        for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y])) continue
-
-            //检查邻接的对方棋链
-            let oppEyesNearby = 0;
-            let oppChainSize = 0;
-            const seenChains = new Set();
-            let touchCount = 0;
-            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
-            for (const [nx, ny] of checks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                    const cid = chains[nx][ny];
-                    if (!seenChains.has(cid)) {
-                        seenChains.add(cid);
-                        oppChainSize += getChainValue(nx, ny, 'O');
-                        oppEyesNearby += getEyeValue(nx, ny, 'O');
-                        touchCount++;
-                    }
-                }
-            }
-            if (oppChainSize === 0) continue;
-
-            //关键是找到对方离"两只眼"只差一步的点
-            //这类点：对方棋链眼值刚好≥1但<2（差一丢丢就活），而我方落子可以填掉它
-            //同时判断：如果对方四周形成3面墙+1空位，这就是"挤眼"的要点
-            let wallCount = 0;
-            let emptyNextToOpp = 0;
-            for (const [nx, ny] of checks) {
-                if (nx < 0 || nx >= size || ny < 0 || ny >= size) wallCount++;
-                else if (board[nx][ny] === 'O') wallCount++;
-                else if (board[nx][ny] === '.') emptyNextToOpp++;
-            }
-
-            let score = 0;
-            //① 高优先级：对方眼值刚好<2（差一点就活），落子直接挤压眼位
-            if (oppEyesNearby >= 1 && oppEyesNearby < 2 && wallCount >= 2) {
-                score = oppChainSize * 100; //极高优先级！
-                if (!criticalBlock || score > criticalBlock.score) {
-                    criticalBlock = { x, y, score };
-                }
-            }
-            //② 中优先级：3面墙+1空位=典型的挤眼形状
-            if (wallCount >= 3 && emptyNextToOpp >= 1) {
-                score = oppChainSize * 50 + wallCount * 10;
-            }
-            //③ 一般优先级：对方眼值低，填他的眼位空间
-            if (oppEyesNearby < 2 && wallCount >= 2) {
-                score = Math.max(score, oppChainSize * 10);
-            }
-
-            if (score > 0) {
-                squeezeMoves.push({ x, y, score });
-                if (score > highScore) highScore = score;
-            }
-        }
-
-        //如果有关键堵眼点（唯一能成两只眼的点），直接返回
-        if (criticalBlock) {
-            return { coords: [criticalBlock.x, criticalBlock.y], msg: 'Squeeze Critical: ' + criticalBlock.score };
-        }
-
-        if (squeezeMoves.length === 0) return [];
-        //选评分最高的几个随机之一
-        squeezeMoves.sort((a, b) => b.score - a.score);
-        const topN = Math.min(squeezeMoves.length, Math.max(1, Math.floor(squeezeMoves.length / 3)));
-        const pick = squeezeMoves[Math.floor(Math.random() * topN)];
-        return { coords: [pick.x, pick.y], msg: 'Squeeze: ' + pick.score };
-    }
-    /** @param {NS} ns
-     * @returns {{coords: number[]; msg: string;}} */
-    function getSystematicSurround() {
-        //从AI抄的getSurroundMove：三级紧气+安全检查
-        //① captureMoves: 对方1气→直接提
-        //② atariMoves: 对方2气→打吃（安全才打）
-        //③ surroundMoves: 对方>2气→紧气
-        //安全检查：ownLibs<=2且对方>2气→送死，跳过
-        const captureMoves = [];
-        const atariMoves = [];
-        const surroundMoves = [];
-        const size = board[0].length;
-        const moves = getAllValidMoves(true);
-        for (const [x, y] of moves) {
-            if (!['?', 'O'].includes(contested[x][y])) continue
-
-            //找邻接的对方棋链
-            let oppSize = 0, oppLibs = 999, oppEyes = 0;
-            const seenChains = new Set();
-            const checks = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
-            for (const [nx, ny] of checks) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                    const cid = chains[nx][ny];
-                    if (!seenChains.has(cid)) {
-                        seenChains.add(cid);
-                        oppSize += getChainValue(nx, ny, 'O');
-                        if (validLibMoves[nx][ny] < oppLibs) oppLibs = validLibMoves[nx][ny];
-                        oppEyes += getEyeValue(nx, ny, 'O');
-                    }
-                }
-            }
-            if (oppSize === 0) continue
-
-            //AI安全检查：落子后新棋子的气量（近似用getSurroundLibs）
-            const ownNewLibs = getSurroundLibs(x, y, 'X');
-
-            //AI核心安全规则：如果ownNewLibs<=2且对方气>2，我方会立即被打吃，跳过！
-            if (ownNewLibs <= 2 && oppLibs > 2) continue
-
-            //三级分类
-            if (oppLibs <= 1) {
-                captureMoves.push({ x, y, score: oppSize * 100 });
-            } else if (oppLibs === 2 && (ownNewLibs >= 2 || oppSize > 3)) {
-                atariMoves.push({ x, y, score: oppSize * 30 / (oppEyes + 1) });
-            } else if (oppEyes < 2) {
-                surroundMoves.push({ x, y, score: oppSize * 10 / (oppLibs + 1) });
-            }
-        }
-
-        const pick = (arr) => {
-            if (!arr.length) return null;
-            arr.sort((a, b) => b.score - a.score);
-            return arr[Math.floor(Math.random() * Math.min(arr.length, 3))];
-        };
-        let best = pick(captureMoves) || pick(atariMoves) || pick(surroundMoves);
-        return best ? { coords: [best.x, best.y], msg: 'Surround: ' + Math.round(best.score) } : [];
-    }
-    /** @param {NS} ns
      * @returns {Promise<false | {type:"move"|"pass"|"gameOver"; x:number; y:number;}} */
     async function movePiece(ns, attack) {
         if (attack.coords === undefined) return false
         const [x, y] = attack.coords
         if (x === undefined) return false
-        const size = board[0].length
-        //布局阶段（前15手）不走边角，中盘/官子不限制
-        if (size >= 9 && turn < 15 && (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2)) {
-            const canCapture = (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) ||
-                (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) ||
-                (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) ||
-                (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1)
-            if (!canCapture) return false //布局阶段不贴边
-        }
-        //禁止往自己的空里填子！contested[x][y]==='X' = 我方控制区域
-        //除非能提子或救活自己的棋，否则填自己的空=白送目数
-        if (contested && contested[x] && contested[x][y] === 'X') {
-            const canCapture = (x > 0 && board[x - 1][y] === 'O' && validLibMoves[x - 1][y] === 1) ||
-                (x < size - 1 && board[x + 1][y] === 'O' && validLibMoves[x + 1][y] === 1) ||
-                (y > 0 && board[x][y - 1] === 'O' && validLibMoves[x][y - 1] === 1) ||
-                (y < size - 1 && board[x][y + 1] === 'O' && validLibMoves[x][y + 1] === 1)
-            const savesAtari = (x > 0 && board[x - 1][y] === 'X' && validLibMoves[x - 1][y] === 1) ||
-                (x < size - 1 && board[x + 1][y] === 'X' && validLibMoves[x + 1][y] === 1) ||
-                (y > 0 && board[x][y - 1] === 'X' && validLibMoves[x][y - 1] === 1) ||
-                (y < size - 1 && board[x][y + 1] === 'X' && validLibMoves[x][y + 1] === 1)
-            if (!canCapture && !savesAtari) return false //填自己的空，跳过
-        }
-        //不跟活棋纠缠：邻接的对方棋链如果已有2眼且不是提子，不浪费步数
-        let attacksAlive = false;
-        for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
-            if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O') {
-                if (getEyeValue(nx, ny, 'O') >= 2 && validLibMoves[nx][ny] > 1) {
-                    attacksAlive = true; //对这活棋的进攻不是提子，浪费步数
-                }
-            }
-        }
-        if (attacksAlive) return false
-        //禁止自紧气：己方棋链恰好2气时落子会变1气（除非提子）
-        const selfAtari = (x > 0 && board[x - 1][y] === 'X' && validLibMoves[x - 1][y] === 2) ||
-            (x < size - 1 && board[x + 1][y] === 'X' && validLibMoves[x + 1][y] === 2) ||
-            (y > 0 && board[x][y - 1] === 'X' && validLibMoves[x][y - 1] === 2) ||
-            (y < size - 1 && board[x][y + 1] === 'X' && validLibMoves[x][y + 1] === 2)
-        if (selfAtari) {
-            let captures = false;
-            for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
-                if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'O' && validLibMoves[nx][ny] === 1) captures = true;
-            }
-            if (!captures) return false //自紧气不捕子=送死
-        }
-        //禁止填自己眼位：落子点在己方眼值≥2的区域
-        for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
-            if (nx >= 0 && nx < size && ny >= 0 && ny < size && board[nx][ny] === 'X' && getEyeValue(nx, ny, 'X') >= 2) {
-                let captures = false;
-                for (const [cx, cy] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
-                    if (cx >= 0 && cx < size && cy >= 0 && cy < size && board[cx][cy] === 'O' && validLibMoves[cx][cy] === 1) captures = true;
-                }
-                if (!captures) return false //填己方眼位，跳过
-            }
-        }
         let mid = performance.now()
         ns.printf("%s", attack.msg)
         const results = await go_makeMove(ns, x, y);
