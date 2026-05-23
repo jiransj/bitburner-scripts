@@ -324,9 +324,219 @@ export async function main(ns) {
     }
   }
 
+  // ======================== 密码分析引擎（从 darkwebcontrol.js 移植） ========================
+
+  const CRACK_COMMON_PASSWORDS = [
+    "123456","password","12345678","qwerty","123456789","12345","1234","111111",
+    "1234567","dragon","123123","baseball","abc123","football","monkey","letmein",
+    "696969","shadow","master","666666","qwertyuiop","123321","mustang","1234567890",
+    "michael","654321","superman","1qaz2wsx","7777777","121212","0","qazwsx",
+    "123qwe","trustno1","jordan","jennifer","zxcvbnm","asdfgh","hunter","buster",
+    "soccer","harley","batman","andrew","tigger","sunshine","iloveyou","2000",
+    "charlie","robert","thomas","hockey","ranger","daniel","starwars","112233",
+    "george","computer","michelle","jessica","pepper","1111","zxcvbn","555555",
+    "11111111","131313","freedom","777777","pass","maggie","159753","aaaaaa",
+    "ginger","princess","joshua","cheese","amanda","summer","love","ashley",
+    "6969","nicole","chelsea","biteme","matthew","access","yankees","987654321",
+    "dallas","austin","thunder","taylor","matrix","admin","0000","fido","spot","rover","max",
+  ];
+  const CRACK_DEFAULT = ["admin","password","0000","12345"];
+  const CRACK_DOGS = ["fido","spot","rover","max","buddy","bella","charlie","luna"];
+
+  function crackGetPermutations(str) {
+    if (str.length <= 1) return [str];
+    const r = []; const seen = new Set();
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i]; if (seen.has(ch)) continue; seen.add(ch);
+      const rest = str.slice(0, i) + str.slice(i + 1);
+      for (const sub of crackGetPermutations(rest)) r.push(ch + sub);
+    }
+    return r;
+  }
+  function crackRoman(s) {
+    const m = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+    let t = 0, p = 0;
+    for (let i = s.length - 1; i >= 0; i--) {
+      const c = m[s[i].toUpperCase()] || 0;
+      if (c < p) t -= c; else t += c; p = c;
+    }
+    return t;
+  }
+  function crackGetCandidates(details) {
+    const hint = ((details.hint || details.passwordHint) || "").toLowerCase();
+    const format = details.format || details.passwordFormat || "";
+    const pwLen = details.length || details.passwordLength || -1;
+    if (hint.includes("no password") || hint.includes("not set") || hint.includes("empty") ||
+        hint.includes("did i set") || hint.includes("didn't set"))
+      return { type: "NoPassword", candidates: [""] };
+    if (hint.includes("default") || hint.includes("factory") || hint.includes("never changed") || hint.includes("still the"))
+      return { type: "DefaultPassword", candidates: CRACK_DEFAULT };
+    if ((hint.includes("the password is") || hint.includes("the pin is") || hint.includes("the key is") ||
+         hint.includes("it's set to") || hint.includes("remember to use") || hint.includes("the secret is")) && format === "numeric") {
+      const words = hint.split(" "); const last = words[words.length-1].replace(/[^0-9]/g,"");
+      if (last && /^\d+$/.test(last) && last.length <= 3) return { type: "EchoVuln", candidates: [] };
+    }
+    if (hint.includes("dog") || hint.includes("fido") || hint.includes("spot") || hint.includes("rover"))
+      return { type: "DogNames", candidates: CRACK_DOGS };
+    if (hint.includes("captcha") || hint.includes("human")) {
+      const raw = (details.data || "").replace(/[^0-9]/g,"");
+      if (raw && raw.length <= 15) return { type: "Captcha", candidates: [raw] };
+    }
+    if (hint.includes("number between") || hint.includes("guess")) return { type: "GuessNumber", candidates: [] };
+    if (hint.includes("shuffled") || hint.includes("sorted") || hint.includes("accidentally sorted") || hint.includes("made from")) {
+      let s = (details.data || "").trim();
+      if (!s) { const w = hint.split(" "); const l = w[w.length-1].replace(/[^a-zA-Z0-9]/g,""); if (l && /^\d+$/.test(l)) s = l; }
+      if (s && /^\d+$/.test(s)) s = Number(s).toString();
+      if (s && s.length >= 1 && s.length <= 6) return { type: "SortedEcho", candidates: crackGetPermutations(s) };
+    }
+    if (hint.includes("you are one who") || hint.includes("who's'nt")) return { type: "Yesn't", candidates: [] };
+    if (hint.includes("buffer is") || hint.includes("password buffer")) return { type: "BufferOverflow", candidates: [] };
+    if (hint.includes("roman") || hint.includes("numeral") || hint.includes("value of the number")) {
+      const data = details.data || "";
+      if (data) for (const part of data.split(",")) {
+        const t = part.trim(); if (/^[IVXLCDMivxlcdm]+$/.test(t)) { const d = crackRoman(t); if (d > 0) return { type: "RomanNumeral", candidates: [d.toString()] }; }
+      }
+    }
+    if (hint.includes("beep") || hint.includes("boop") || hint.includes("binary")) {
+      const data = details.data || "";
+      if (data && data.includes(" ")) { const c = data.split(" ").map(b => String.fromCharCode(parseInt(b,2))).join(""); if (c && c.length <= 15) return { type: "BinaryEncoded", candidates: [c] }; }
+    }
+    if (format === "numeric" && pwLen > 0 && pwLen <= 6 && (hint.includes("master") || hint.includes("match exactly") || hint.includes("wrong place")))
+      return { type: "MasterMind", candidates: [] };
+    return { type: "Dictionary", candidates: CRACK_COMMON_PASSWORDS };
+  }
+  function crackFilterCandidates(candidates, format, pwLen) {
+    if (format === "numeric") candidates = candidates.filter(c => /^\d+$/.test(c));
+    else if (format === "alphabetic") candidates = candidates.filter(c => /^[a-zA-Z]+$/.test(c));
+    else if (format === "alphanumeric") candidates = candidates.filter(c => /^[a-zA-Z0-9]+$/.test(c));
+    if (pwLen > 0) candidates = candidates.filter(c => c.length === pwLen);
+    return candidates;
+  }
+  function crackAnalyzeTarget(details) {
+    const { type, candidates: raw } = crackGetCandidates(details);
+    const format = details.format || details.passwordFormat || "";
+    const pwLen = details.length || details.passwordLength || -1;
+    if (type === "EchoVuln") {
+      const hint = ((details.hint || "") + " " + (details.data || "")).toLowerCase();
+      const last = hint.split(" ").pop().replace(/[^0-9]/g,"");
+      if (last && /^\d+$/.test(last) && last.length <= 3) return { password: last, type: "EchoVuln" };
+      return null;
+    }
+    if (type === "GuessNumber") {
+      const guessHint = ((details.hint || "") + " " + (details.data || "")).toLowerCase();
+      const mm = guessHint.match(/between\s+\d+\s+and\s+(\d+)/i);
+      if (mm) { const mv = parseInt(mm[1]); if (mv <= 1000) { const c = []; for (let i=0;i<mv;i++) c.push(String(i)); return { password: null, candidates: crackFilterCandidates(c,format,pwLen), type: "GuessNumber_binary" }; } }
+      return null;
+    }
+    if (type === "Yesn't") return { password: null, needYesn: true, type: "Yesn't" };
+    if (type === "BufferOverflow") {
+      const bufHint = ((details.hint || "") + " " + (details.data || "")).toLowerCase();
+      const bm = bufHint.match(/buffer is (\d+)/i);
+      if (bm) return { password: "■".repeat(2*parseInt(bm[1])), type: "BufferOverflow" };
+      return null;
+    }
+    if (type === "MasterMind") return { password: null, needMasterMind: true, type: "MasterMind" };
+    let candidates = raw; if (candidates.length === 0) return null;
+    candidates = crackFilterCandidates(candidates, format, pwLen);
+    if (candidates.length === 0) return null;
+    return { password: null, candidates, type };
+  }
+
+  // ======================== 指令下发（向其它 watch 发命令） ========================
+
+  const knownPasswords = {};
+
+  async function dispatchTo(reporter, tasks) {
+    if (tasks.length === 0) return;
+    try {
+      const pwd = knownPasswords[reporter];
+      if (pwd) { try { await ns.dnet.connectToSession(reporter, pwd); } catch {} }
+      const safeName = reporter.replace(/[^a-zA-Z0-9]/g, "_");
+      const cmdFile = REPORT_BASE + "cmd-" + safeName + ".txt";
+      ns.write(cmdFile, JSON.stringify({ tasks }), "w");
+      await ns.scp(cmdFile, reporter);
+      ns.rm(cmdFile);
+      ns.print(`[${MY_HOST}] → ${reporter}: 指令已下发`);
+    } catch (e) {
+      ns.print(`[${MY_HOST}] 下发指令失败 ${reporter}: ${e}`);
+    }
+  }
+
+  // ======================== 异步破译队列 ========================
+
+  const pendingCracks = new Map(); // target → { pid, safeTarget }
+
+  /** 检查已完成的后台 worm，处理结果 */
+  async function processCompletedCracks() {
+    const done = [];
+    for (const [target, info] of pendingCracks) {
+      if (!ns.isRunning(info.pid)) done.push([target, info]);
+    }
+    for (const [target, info] of done) {
+      pendingCracks.delete(target);
+      const { safeTarget } = info;
+      const resultFile = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
+      if (!ns.fileExists(resultFile)) {
+        ns.print(`[${MY_HOST}] ${target}: worm 无结果文件`);
+        continue;
+      }
+      try {
+        const result = JSON.parse(ns.read(resultFile));
+        ns.rm(resultFile);
+        if (!result.success) {
+          ns.print(`[${MY_HOST}] ${target}: 破解失败`);
+          if (result.needAnalysis && result.details) {
+            // 本地分析
+            const analysis = crackAnalyzeTarget(result.details);
+            if (analysis && analysis.password !== null) {
+              ns.print(`[${MY_HOST}] ${target}: 本地分析出密码 ${analysis.password}`);
+              await dispatchTo(MY_HOST, [
+                { op: "authenticate", host: target, password: analysis.password },
+                { op: "freeMemory", host: target },
+              ]);
+            } else if (analysis && analysis.candidates && analysis.candidates.length > 0) {
+              ns.print(`[${MY_HOST}] ${target}: 本地分析 ${analysis.candidates.length} 候选`);
+              await dispatchTo(MY_HOST,
+                analysis.candidates.map(p => ({ op: "authenticate", host: target, password: p }))
+              );
+            }
+          }
+          continue;
+        }
+        ns.tprint(`✅ [${MY_HOST}] ${target} 破解成功! 密码=${result.password} (${result.type})`);
+        // 缓存密码
+        knownPasswords[target] = result.password;
+        // 释放内存 + 部署 watch
+        await freeMemory(target);
+        await deployWatchTo(target, result.password);
+      } catch (e) {
+        ns.print(`[${MY_HOST}] ${target}: 结果处理异常: ${e}`);
+      }
+    }
+  }
+
+  /** 启动新的破译任务（exec worm on MY_HOST） */
+  function startNewCrack(host) {
+    if (pendingCracks.has(host)) return;
+    const safeTarget = host.replace(/[^a-zA-Z0-9]/g, "_");
+    const resultFile = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
+    if (ns.fileExists(resultFile)) ns.rm(resultFile);
+    const scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST);
+    const availRam = ns.getServerMaxRam(MY_HOST) - ns.getServerUsedRam(MY_HOST);
+    const threads = Math.max(1, Math.floor(availRam / scriptRam));
+    if (threads < 1) { ns.print(`[${MY_HOST}] ${host}: RAM 不足`); return; }
+    const pid = ns.exec(WORM_SCRIPT, MY_HOST, threads, "--target-only", host);
+    if (pid > 0) {
+      pendingCracks.set(host, { pid, safeTarget, startTime: Date.now() });
+      ns.print(`[${MY_HOST}] 🔧 worm ${host} (PID=${pid})`);
+    } else {
+      ns.print(`[${MY_HOST}] ${host}: worm 启动失败`);
+    }
+  }
+
   // ======================== 主循环 ========================
 
-  ns.tprint(`🔭 [${MY_HOST}] dnet-watch.js v1.0 启动，每 ${CHECK_INTERVAL_MS / 1000}s 扫描一次`);
+  ns.tprint(`🔭 [${MY_HOST}] dnet-watch.js v2.0 启动，每 ${CHECK_INTERVAL_MS / 1000}s 扫描一次`);
 
   let allInfectedCount = 0;
 
@@ -398,11 +608,14 @@ export async function main(ns) {
           try { if (await deployWatchTo(host, "已存在会话")) deployedCount++; }
           catch (e) { ns.print(`[${MY_HOST}] ${host}: 部署异常: ${e}`); }
         } else {
-          // 无会话 → 报告中枢，由 darkwebcontrol.js 统一调 worm 破解
-          ns.print(`[${MY_HOST}] ${host}: 无会话，报告中枢处理`);
-          await reportCrackNeed(host, d);
+          // 无会话 → 加入本地异步破译队列
+          ns.print(`[${MY_HOST}] ${host}: 无会话，加入破译队列`);
+          startNewCrack(host);
         }
       }
+
+      // 阶段 3b: 处理已完成的破译任务
+      await processCompletedCracks();
 
       // 阶段 4: 检测全部邻居是否均已部署 watch
       const allHaveWatch = neighbors.every((h) => {
