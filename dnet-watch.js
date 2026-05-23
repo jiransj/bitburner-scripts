@@ -224,6 +224,15 @@ export async function main(ns) {
 
   // ======================== Worm 生命周期管理 ========================
 
+  /** 检测目标服务器上是否已运行 dnet-watch.js */
+  function isWatchRunningOn(host) {
+    try {
+      return ns.ps(host).some((p) => p.filename === ns.getScriptName());
+    } catch {
+      return false; // 无法获取进程列表（无会话），视为未运行
+    }
+  }
+
   /** 检测是否有 dnet-worm.js 正在运行 */
   function isWormRunning() {
     return ns.ps(MY_HOST).some((p) => p.filename === WORM_SCRIPT);
@@ -241,130 +250,101 @@ export async function main(ns) {
     return count;
   }
 
-  /** 对一个目标执行破解：SCP + 启动 worm + 等待结果 + memoryReallocation */
-  async function crackTarget(host) {
-    if (infectedSet.has(host)) return true;
-
-    ns.print(`\n[${MY_HOST}] 🔍 开始攻克目标: ${host}`);
-
-    // 1. 检查是否已有会话
+  /** 确保目标上有会话（必要时破解） */
+  async function ensureSession(host) {
     try {
       const details = ns.dnet.getServerDetails(host);
-      if (!details.isOnline) { ns.print(`[${MY_HOST}] ${host}: 离线`); return false; }
-      if (details.hasSession) {
-        ns.print(`[${MY_HOST}] ${host}: 已有有效会话`);
-        infectedSet.add(host);
-        saveInfected();
-        return true;
-      }
+      if (!details.isOnline) return false;
+      if (details.hasSession) return true;
     } catch (e) {
       ns.print(`[${MY_HOST}] ${host}: 无法获取详情 - ${e}`);
       return false;
     }
 
-    // 2. SCP 脚本到目标
-    ns.print(`[${MY_HOST}] ${host}: 复制脚本...`);
+    ns.print(`[${MY_HOST}] ${host}: 需要破解以建立会话...`);
+
+    // SCP 脚本到目标
     await copyScriptsTo(host);
 
-    // 3. 在本机启动 dnet-worm.js 以 --target-only 模式破解目标
+    // 启动 worm 破解
     const scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST);
     const availRam = ns.getServerMaxRam(MY_HOST) - ns.getServerUsedRam(MY_HOST);
     const threads = Math.max(1, Math.floor(availRam / scriptRam));
+    if (threads < 1) { ns.print(`[${MY_HOST}] ${host}: RAM 不足`); return false; }
 
-    if (threads < 1) {
-      ns.print(`[${MY_HOST}] ${host}: 本机 RAM 不足，无法启动 worm`);
-      return false;
-    }
-
-    // 清除旧的临时结果文件
     const resultFile = REPORT_BASE + "crack-result-" + host.replace(/[^a-zA-Z0-9]/g, "_") + ".txt";
     if (ns.fileExists(resultFile)) ns.rm(resultFile);
 
     const pid = ns.exec(WORM_SCRIPT, MY_HOST, threads, "--target-only", host);
-    if (pid <= 0) {
-      ns.print(`[${MY_HOST}] ${host}: worm 启动失败`);
-      return false;
-    }
-    ns.print(`[${MY_HOST}] ${host}: worm 已启动 (PID=${pid})，等待结果...`);
+    if (pid <= 0) { ns.print(`[${MY_HOST}] ${host}: worm 启动失败`); return false; }
 
-    // 4. 等待 worm 完成
+    // 等待完成
     let waited = 0;
-    const maxWait = 120000; // 最多等 2 分钟
-    while (waited < maxWait) {
+    while (waited < 120000) {
       await ns.sleep(500);
       waited += 500;
       if (!ns.isRunning(pid)) break;
     }
-    // 如果超时，强制杀掉
-    if (ns.isRunning(pid)) {
-      ns.kill(pid);
-      ns.print(`[${MY_HOST}] ${host}: worm 超时（${maxWait / 1000}秒），强制终止`);
-    }
+    if (ns.isRunning(pid)) { ns.kill(pid); return false; }
 
-    // 5. 读取结果
-    let cracked = false;
-    if (ns.fileExists(resultFile)) {
-      try {
-        const result = JSON.parse(ns.read(resultFile));
-        ns.rm(resultFile); // ← 文件清理在 watch 中
-        if (result.success) {
-          cracked = true;
-          ns.tprint(`✅ [${MY_HOST}] ${host} 破解成功! 密码=${result.password} (${result.type})`);
-          // 向控制中枢报告
-          reportToController("crack", {
-            reporter: MY_HOST,
-            host: result.host,
-            password: result.password,
-            type: result.type,
-            timestamp: Date.now(),
+    // 读结果
+    if (!ns.fileExists(resultFile)) { ns.print(`[${MY_HOST}] ${host}: 无结果文件`); return false; }
+    try {
+      const result = JSON.parse(ns.read(resultFile));
+      ns.rm(resultFile);
+      if (!result.success) {
+        ns.print(`[${MY_HOST}] ${host}: 破解失败`);
+        if (result.needAnalysis && result.details) {
+          reportToController("need", {
+            reporter: MY_HOST, host: result.host,
+            hint: result.details.passwordHint || "",
+            data: result.details.data || "",
+            format: result.details.passwordFormat || "",
+            length: result.details.passwordLength || -1,
           });
-        } else {
-          ns.print(`[${MY_HOST}] ${host}: 破解失败`);
-          // 如果需要分析
-          if (result.needAnalysis && result.details) {
-            reportToController("need", {
-              reporter: MY_HOST,
-              host: result.host,
-              hint: result.details.passwordHint || "",
-              data: result.details.data || "",
-              format: result.details.passwordFormat || "",
-              length: result.details.passwordLength || -1,
-              timestamp: Date.now(),
-            });
-          }
         }
-      } catch (e) {
-        ns.print(`[${MY_HOST}] ${host}: 结果解析失败 - ${e}`);
+        return false;
       }
-    } else {
-      ns.print(`[${MY_HOST}] ${host}: 未找到结果文件`);
-    }
+      ns.tprint(`✅ [${MY_HOST}] ${host} 破解成功! 密码=${result.password} (${result.type})`);
+      reportToController("crack", { reporter: MY_HOST, host: result.host, password: result.password, type: result.type });
 
-    // 6. 如果破解成功，释放内存、标记感染、在新服务器上启动 watch 副本
-    if (cracked) {
+      // 释放内存
       await freeMemory(host);
+
       infectedSet.add(host);
       saveInfected();
+      return true;
+    } catch (e) {
+      ns.print(`[${MY_HOST}] ${host}: 结果解析失败 - ${e}`);
+      return false;
+    }
+  }
 
-      // 7. 在新服务器上启动 dnet-watch.js 副本（自我复制）
-      const watchScript = ns.getScriptName();
-      const watchRam = ns.getScriptRam(watchScript, host);
-      const hostMaxRam = ns.getServerMaxRam(host);
-      const hostUsedRam = ns.getServerUsedRam(host);
-      const hostAvail = hostMaxRam - hostUsedRam;
-      if (hostAvail >= watchRam) {
-        const watchPid = ns.exec(watchScript, host, 1);
-        if (watchPid > 0) {
-          ns.tprint(`🚀 [${MY_HOST}] → ${host}: dnet-watch.js 已启动 (PID=${watchPid})`);
-        } else {
-          ns.print(`[${MY_HOST}] ${host}: dnet-watch.js 启动失败`);
-        }
-      } else {
-        ns.print(`[${MY_HOST}] ${host}: RAM不足(${ns.format.ram(hostAvail)} < ${ns.format.ram(watchRam)})，无法启动 watch 副本`);
-      }
+  /** 在目标服务器上部署并启动 dnet-watch.js（假设已有会话） */
+  async function deployWatchTo(host) {
+    const watchScript = ns.getScriptName();
+    const watchRam = ns.getScriptRam(watchScript, host);
+    const hostAvail = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
+
+    if (hostAvail < watchRam) {
+      ns.print(`[${MY_HOST}] ${host}: RAM不足(${ns.format.ram(hostAvail)} < ${ns.format.ram(watchRam)})，无法部署 watch`);
+      return false;
     }
 
-    return cracked;
+    // 复制所有 4 个脚本
+    await copyScriptsTo(host);
+
+    // 启动 watch
+    const pid = ns.exec(watchScript, host, 1);
+    if (pid > 0) {
+      ns.tprint(`🚀 [${MY_HOST}] → ${host}: dnet-watch.js 已启动 (PID=${pid})`);
+      infectedSet.add(host);
+      saveInfected();
+      return true;
+    } else {
+      ns.print(`[${MY_HOST}] ${host}: dnet-watch.js 启动失败`);
+      return false;
+    }
   }
 
   // ======================== 主循环 ========================
@@ -395,20 +375,39 @@ export async function main(ns) {
 
     ns.print(`[${MY_HOST}] 探测到 ${neighbors.length} 个邻居`);
 
-    // 阶段 3: 针对未感染邻居执行破解
-    const uninfected = neighbors.filter((h) => !infectedSet.has(h));
-    let anyNewInfection = false;
+    // 阶段 3: 对每个邻居检查 dnet-watch，缺失则部署
+    let deployedCount = 0;
+    for (const host of neighbors) {
+      // 跳过本机
+      if (host === MY_HOST) continue;
 
-    if (uninfected.length > 0) {
-      ns.print(`[${MY_HOST}] ${uninfected.length} 个邻居未感染: ${uninfected.join(", ")}`);
-      for (const host of uninfected) {
-        const ok = await crackTarget(host);
-        if (ok) anyNewInfection = true;
+      // 检查 watch 是否已在目标上运行
+      if (isWatchRunningOn(host)) {
+        ns.print(`[${MY_HOST}] ${host}: watch 已在运行`);
+        // 确保在 infectedSet 中
+        if (!infectedSet.has(host)) {
+          infectedSet.add(host);
+          saveInfected();
+        }
+        continue;
       }
+
+      ns.print(`[${MY_HOST}] ${host}: watch 未运行，开始部署`);
+
+      // 确保有会话（必要时破解）
+      const hasSession = await ensureSession(host);
+      if (!hasSession) {
+        ns.print(`[${MY_HOST}] ${host}: 无法建立会话，跳过`);
+        continue;
+      }
+
+      // 部署 watch
+      const deployed = await deployWatchTo(host);
+      if (deployed) deployedCount++;
     }
 
     // 阶段 4: 全感染检测
-    const allInfected = neighbors.every((h) => infectedSet.has(h));
+    const allInfected = neighbors.every((h) => infectedSet.has(h) || h === MY_HOST);
 
     if (allInfected) {
       allInfectedCount++;
