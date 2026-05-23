@@ -30,7 +30,8 @@ export async function main(ns) {
   const STOCKMASTER_SCRIPT = "stockmaster.js";
   const REPORT_BASE = "/Temp/dnet-worm-";
   const INFECTED_FILE = "/Temp/dnet-worm-infected.txt";
-  const CHECK_INTERVAL_MS = 4000;
+  const CHECK_INTERVAL_MS = 2000;
+  const MAX_CONCURRENT_CRACKS = 3; // 最多同时破解 3 个
 
   // ======================== 持久化状态 ========================
   let infectedSet = new Set();
@@ -524,8 +525,7 @@ export async function main(ns) {
   /** 启动新的破译任务（exec worm on MY_HOST） */
   function startNewCrack(host) {
     if (pendingCracks.has(host)) return;
-    // 如果有 worm 在跑（常驻或 --target-only），等它完成
-    if (ns.ps(MY_HOST).some(p => p.filename === WORM_SCRIPT)) return;
+    if (pendingCracks.size >= MAX_CONCURRENT_CRACKS) return; // 并发限制
     const safeTarget = host.replace(/[^a-zA-Z0-9]/g, "_");
     const resultFile = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
     if (ns.fileExists(resultFile)) ns.rm(resultFile);
@@ -624,26 +624,6 @@ export async function main(ns) {
 
       // 阶段 3b: 处理已完成的破译任务
       await processCompletedCracks();
-
-      // 阶段 3c: 如有未攻克邻居，确保 dnet-worm.js 常驻运行
-      const hasUncracked = neighbors.some(h => {
-        if (h === MY_HOST || pendingCracks.has(h)) return false;
-        try {
-          const dd = ns.dnet.getServerDetails(h);
-          if (!dd.isOnline) return false;
-          if (dd.hasSession) return !ns.isRunning(ns.getScriptName(), h);
-          return true;
-        } catch { return true; }
-      });
-      const wormAlive = ns.ps(MY_HOST).some(p => p.filename === WORM_SCRIPT);
-      if (hasUncracked && !wormAlive) {
-        const ram = ns.getScriptRam(WORM_SCRIPT, MY_HOST);
-        const thr = Math.max(1, Math.floor((ns.getServerMaxRam(MY_HOST)-ns.getServerUsedRam(MY_HOST))/ram));
-        if (thr >= 1) {
-          const pid = ns.exec(WORM_SCRIPT, MY_HOST, thr);
-          if (pid > 0) ns.print(`[${MY_HOST}] 🐛 常驻 worm 已启动 (PID=${pid})`);
-        }
-      }
 
       // 阶段 4: 检测全部邻居是否均已部署 watch
       const allHaveWatch = neighbors.every((h) => {
