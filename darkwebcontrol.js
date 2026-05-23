@@ -13,12 +13,13 @@
 import { formatNumber } from './helpers.js';
 
 export async function main(ns) {
-  const WORM_SCRIPT = ns.args.includes("--worm")
-    ? ns.args[ns.args.indexOf("--worm") + 1]
-    : "dnet-worm.js";
+  const WATCH_SCRIPT = ns.args.includes("--watch")
+    ? ns.args[ns.args.indexOf("--watch") + 1]
+    : "dnet-watch.js";
+  const WORM_SCRIPT = "dnet-worm.js";
   const REPORT_BASE = "/Temp/dnet-worm-";
   const OPENCACHE_SCRIPT = "openCache.js";
-  const openCacheSize = ns.getScriptRam(OPENCACHE_SCRIPT, "home");
+  const STOCKMASTER_SCRIPT = "stockmaster.js";
 
   ns.disableLog('ALL');
   ns.ui.openTail();
@@ -354,18 +355,28 @@ export async function main(ns) {
 
   // ========== 部署 + 主循环 ==========
 
-  let wormPid = 0;
-  async function ensureWorm() {
-    if (!ns.fileExists(WORM_SCRIPT, "home")) return false;
-    // 检查 worm 是否存活
-    const running = ns.isRunning(wormPid);
+  let watchPid = 0;
+  async function ensureWatch() {
+    if (!ns.fileExists(WATCH_SCRIPT, "home")) return false;
+    // 检查 watch 是否存活
+    const running = ns.isRunning(watchPid);
     if (running) return true;
-    // 重新部署
-    await ns.scp(WORM_SCRIPT, "darkweb");
-    wormPid = ns.exec(WORM_SCRIPT, "darkweb", 1, "--controller", "home");
-    addLog(wormPid > 0 ? `蠕虫启动 PID=${wormPid}` : "⚠️ 蠕虫启动失败");
-    return wormPid > 0;
+    // 重新部署：把所有脚本都复制到 darkweb
+    const scripts = [WATCH_SCRIPT, WORM_SCRIPT, OPENCACHE_SCRIPT, STOCKMASTER_SCRIPT];
+    for (const script of scripts) {
+      if (ns.fileExists(script, "home")) {
+        try { await ns.scp(script, "darkweb"); } catch (e) {
+          addLog(`⚠️ SCP ${script} 失败: ${e}`);
+        }
+      }
+    }
+    // 启动 dnet-watch.js（而非 worm）
+    watchPid = ns.exec(WATCH_SCRIPT, "darkweb", 1);
+    addLog(watchPid > 0 ? `🟢 监视器启动 PID=${watchPid}` : "⚠️ 监视器启动失败");
+    return watchPid > 0;
   }
+  await ensureWatch();
+  drawDashboard();
   await ensureWorm();
   drawDashboard();
 
@@ -383,7 +394,7 @@ export async function main(ns) {
     ns.print(`║  运行: ${formatNumber(s)}s  破解: ${stats.totalCracked}  分析: ${stats.analyzed}`);
     ns.print(`║  节点: ${stats.totalNodes}  调度: ${stats.dispatched}  失败: ${stats.failed}`);
     ns.print(`║  🎁缓存: ${cacheStats.opened}/${cacheStats.totalFiles}  活跃蠕虫: ${activeWorms}`);
-    ns.print(`║  主实例: ${primaryHost}`);
+    ns.print(`║  主监视: ${primaryHost}`);
     ns.print("╠══════════════════════════════════════════════════╣");
     ns.print("║  最近活动:                                       ");
     for (const m of recentLog) ns.print(`║  ${m}`);
@@ -392,8 +403,8 @@ export async function main(ns) {
 
   let tick = 0;
   while (true) {
-    // 0. 确保蠕虫存活（darkweb 重建时会杀死旧进程）
-    await ensureWorm();
+    // 0. 确保监视器存活（darkweb 重建时会杀死旧进程）
+    await ensureWatch();
 
     // 1. 采集并处理蠕虫状态报告
     for (const f of ns.ls("home").filter(f => f.startsWith(REPORT_BASE + "status-"))) {
