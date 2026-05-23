@@ -567,7 +567,7 @@ export async function main(ns) {
         return true;
       }
 
-      ns.print(`[${MY_HOST}] ${host}: 释放 ${ns.formatRam(details.blockedRam)} 阻塞内存...`);
+      ns.print(`[${MY_HOST}] ${host}: 释放 ${ns.format.ram(details.blockedRam)} 阻塞内存...`);
 
       let attempts = 0;
       while (attempts < 20) {
@@ -579,7 +579,7 @@ export async function main(ns) {
             ns.tprint(`✅ [${MY_HOST}] ${host}: 内存全部释放完毕`);
             return true;
           }
-          ns.print(`[${MY_HOST}] ${host}: 剩余阻塞 ${ns.formatRam(newDetails.blockedRam)}`);
+          ns.print(`[${MY_HOST}] ${host}: 剩余阻塞 ${ns.format.ram(newDetails.blockedRam)}`);
         } else {
           ns.print(`[${MY_HOST}] ${host}: 内存释放失败: ${r?.message || "未知错误"}`);
           return false;
@@ -667,7 +667,7 @@ export async function main(ns) {
 
     // 主脚本 RAM 必须满足
     if (availableRam < scriptRam) {
-      ns.print(`[${MY_HOST}] ${host} RAM不足(可用${ns.formatRam(availableRam)} < 需要${ns.formatRam(scriptRam)})，跳过传播`);
+      ns.print(`[${MY_HOST}] ${host} RAM不足(可用${ns.format.ram(availableRam)} < 需要${ns.format.ram(scriptRam)})，跳过传播`);
       return false;
     }
 
