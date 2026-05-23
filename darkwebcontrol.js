@@ -377,8 +377,6 @@ export async function main(ns) {
   }
   await ensureWatch();
   drawDashboard();
-  await ensureWorm();
-  drawDashboard();
 
   function drawDashboard() {
     ns.clearLog();
