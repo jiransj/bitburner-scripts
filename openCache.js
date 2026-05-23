@@ -45,10 +45,12 @@ export async function main(ns) {
   }
 
   /** 向控制中枢发送报告 */
-  function reportToController(type, data) {
+  async function reportToController(type, data) {
     try {
       const reportFile = REPORT_BASE + type + "-" + HOST.replace(/[^a-zA-Z0-9]/g, "_") + ".txt";
       ns.write(reportFile, JSON.stringify(data), "w");
+      // ⚠️ SCP 到 home！否则中枢在 home 上读不到
+      await ns.scp(reportFile, "home");
     } catch (e) {
       ns.print(`[${HOST}] 报告失败: ${e}`);
     }
