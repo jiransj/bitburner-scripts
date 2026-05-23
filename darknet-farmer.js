@@ -96,9 +96,11 @@ export async function main(ns) {
     // ── 自部署: 自动复制到 darkweb 上运行 ──
     if (options['deploy-to-darkweb'] && !options['deployed']) {
         const currentHost = ns.getHostname();
-        const hasDarkweb = ns.scan("home").includes("darkweb");
+        // V3 中 ns.scan("home") 不再返回 darkweb，改用 scp 实测能否访问
+        const darkwebReachable = ns.fileExists(SCRIPT_NAME, "darkweb") || // 已有文件
+            (await ns.scp(SCRIPT_NAME, "darkweb", "home")); // 或能复制过去
 
-        if (currentHost !== "darkweb" && hasDarkweb) {
+        if (currentHost !== "darkweb" && darkwebReachable) {
             ns.tprint("🚀 正在部署到 darkweb ...");
             // 复制本脚本和 worker 脚本到 darkweb
             await ns.scp(SCRIPT_NAME, "darkweb", "home");
@@ -126,21 +128,31 @@ export async function main(ns) {
         return;
     }
 
-    // 检查 darkweb 入口
-    if (!ns.scan("home").includes("darkweb")) {
-        ns.tprint("WARNING: 未检测到 darkweb 入口，尝试购买 Tor 路由器...");
+    // 检查暗网可访问性: 用 dnet.probe 测试，而非 ns.scan (V3 中 scan 不返回暗网服务器)
+    let darknetAccessible = false;
+    try {
+        const testProbe = ns.dnet.probe();
+        darknetAccessible = true;
+        ns.print("INFO: ✓ dnet API 可用");
+    } catch (e) {
+        ns.print("WARN: dnet.probe() 不可用，尝试购买 Tor...");
+    }
+    if (!darknetAccessible) {
         try {
             if (ns.singularity.purchaseTor()) {
-                ns.tprint("SUCCESS: Tor 路由器已购买! 请重新运行脚本");
-            } else {
-                ns.tprint("WARNING: 购买 Tor 失败(资金不足?)，请手动购买 Tor");
+                ns.tprint("SUCCESS: Tor 已购买! 请重新运行脚本");
+                ns.exit();
+                return;
             }
         } catch (e) {
-            ns.tprint("WARNING: 无法自动购买 Tor(需要 SF4/Singularity API)");
+            ns.tprint("WARNING: 无法自动购买 Tor(需 SF4/Singularity API)，请手动购买");
         }
-        ns.tprint("INFO: 购买 Tor 后，脚本会自动部署到 darkweb 运行");
-        ns.exit();
-        return;
+        // 如果还是无法访问，可能是 Tor 已购买但尚未连接 darkweb
+        ns.tprint("WARNING: 暗网不可访问。可能原因:");
+        ns.tprint("  - 未购买 Tor 路由器");
+        ns.tprint("  - 未连接 darkweb (终端执行: connect darkweb)");
+        ns.tprint("  - 当前 BitNode 没有暗网功能");
+        // 不退出，让部署阶段再试一次
     }
 
     // 检查 WORKER_SCRIPT 是否存在
@@ -249,7 +261,7 @@ export async function main(ns) {
                 ns.print("  - 当前 BitNode 没有暗网内容");
                 ns.print("  - 暗网拓扑尚未生成(等待突变)");
                 ns.print("  - Charisma 等级不足");
-                ns.print(`INFO: 当前运行位置: ${ns.getHostname()}, darkweb入口: ${ns.scan("home").includes("darkweb")}`);
+                ns.print(`INFO: 当前运行位置: ${ns.getHostname()}, 已在darkweb: ${ns.getHostname() === "darkweb"}`);
             }
 
         } catch (e) {
@@ -730,8 +742,8 @@ function printReport(ns, serverState, totalStats, cycleCount) {
 
     ns.tprint("-".repeat(60));
     ns.tprint(`  📊 暗网收益报告 [#${cycleCount}]`);
-    const darkwebOk = ns.scan("home").includes("darkweb");
-    ns.tprint(`  🌐 服务器: ${totalServers} 已知, ${authedServers} 已认证, ${activeWorkers} 活跃Worker  ${darkwebOk ? '✓darkweb' : '✗无darkweb入口'}`);
+    const onDarkweb = ns.getHostname() === "darkweb";
+    ns.tprint(`  🌐 服务器: ${totalServers} 已知, ${authedServers} 已认证, ${activeWorkers} 活跃Worker  ${onDarkweb ? '✓darkweb' : '运行于: ' + ns.getHostname()}`);
     ns.tprint(`  🎣 钓鱼: ${totalStats.phishAttempts} 次`);
     ns.tprint(`  🧠 内存释放: ${totalStats.memoryFreed} 次`);
     ns.tprint(`  📦 缓存打开: ${totalStats.cachesOpened} 个`);
