@@ -25,11 +25,10 @@ export async function main(ns) {
   if (symbols.length === 0) symbols = [...ALL_STOCKS];
 
   // 助手脚本 — 顺序循环（Netscript 禁止并发调用）
-  if (!ns.fileExists(HELPER)) {
-    ns.write(HELPER,
-      `export async function main(ns) { for(const s of ns.args) await ns.dnet.promoteStock(s); }`, "w");
-  }
-  await ns.sleep(20);
+  // 每次都覆盖写入，防止旧版 Promise.all 残留
+  ns.write(HELPER,
+    `export async function main(ns) { for(const s of ns.args) await ns.dnet.promoteStock(s); }`, "w");
+  await ns.sleep(100);
 
   const ramPer = ns.getScriptRam(HELPER, HOST);
   ns.print(`[${HOST}] 助手 ${ramPer}GB/线程 | ${symbols.length} 支`);
@@ -39,16 +38,20 @@ export async function main(ns) {
     const free = ns.getServerMaxRam(HOST) - ns.getServerUsedRam(HOST);
     const maxInstances = Math.max(1, Math.floor(free / ramPer));
 
-    // 股票分片，每片给一个实例
+    // 分片启动，每启动一个等一会儿防止卡死
     const batchSize = Math.ceil(symbols.length / maxInstances);
     const pids = [];
     for (let i = 0; i < maxInstances && i * batchSize < symbols.length; i++) {
       const batch = symbols.slice(i * batchSize, (i + 1) * batchSize);
+      await ns.sleep(100); // 每个实例间隔 100ms
       const pid = ns.run(HELPER, 1, ...batch);
       if (pid > 0) pids.push(pid);
     }
 
     // 等所有实例跑完再启动下一轮
-    while (pids.some(p => ns.isRunning(p))) await ns.sleep(50);
+    while (pids.some(p => ns.isRunning(p))) await ns.sleep(200);
+
+    // 轮次间隔，防止 CPU 过载
+    await ns.sleep(500);
   }
 }
