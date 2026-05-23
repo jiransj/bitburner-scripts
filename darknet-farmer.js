@@ -561,7 +561,7 @@ async function attemptLabyrinth(ns, serverState, options) {
     // 检查是否有足够的 Charisma
     try {
         const playerInfo = JSON.parse(
-            await getNsDataThroughFile(ns, 'JSON.stringify((() => { const p = ns.getPlayer(); return { cha: p.skills.charisma, city: p.city }; })())')
+            await getNsDataThroughFile(ns, 'JSON.stringify((() => { const p = ns.getPlayer(); return { cha: p.skills.charisma, city: p.city }; })())', '/Temp/dnet-player-cha-city.txt')
         );
 
         if (!playerInfo || playerInfo.cha < 300) {
