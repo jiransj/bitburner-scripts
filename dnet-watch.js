@@ -340,11 +340,28 @@ export async function main(ns) {
       ns.print(`[${MY_HOST}] ${host}: 未找到结果文件`);
     }
 
-    // 6. 如果破解成功，释放内存并标记感染
+    // 6. 如果破解成功，释放内存、标记感染、在新服务器上启动 watch 副本
     if (cracked) {
       await freeMemory(host);
       infectedSet.add(host);
       saveInfected();
+
+      // 7. 在新服务器上启动 dnet-watch.js 副本（自我复制）
+      const watchScript = ns.getScriptName();
+      const watchRam = ns.getScriptRam(watchScript, host);
+      const hostMaxRam = ns.getServerMaxRam(host);
+      const hostUsedRam = ns.getServerUsedRam(host);
+      const hostAvail = hostMaxRam - hostUsedRam;
+      if (hostAvail >= watchRam) {
+        const watchPid = ns.exec(watchScript, host, 1);
+        if (watchPid > 0) {
+          ns.tprint(`🚀 [${MY_HOST}] → ${host}: dnet-watch.js 已启动 (PID=${watchPid})`);
+        } else {
+          ns.print(`[${MY_HOST}] ${host}: dnet-watch.js 启动失败`);
+        }
+      } else {
+        ns.print(`[${MY_HOST}] ${host}: RAM不足(${ns.format.ram(hostAvail)} < ${ns.format.ram(watchRam)})，无法启动 watch 副本`);
+      }
     }
 
     return cracked;
