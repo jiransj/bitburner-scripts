@@ -348,11 +348,19 @@ export async function main(ns) {
 
   // ========== 部署 + 主循环 ==========
 
-  ns.print("🚀 部署蠕虫到 darkweb...");
-  if (!ns.fileExists(WORM_SCRIPT, "home")) { ns.tprint(`❌ ${WORM_SCRIPT} 不存在`); return; }
-  await ns.scp(WORM_SCRIPT, "darkweb");
-  const wormPid = ns.exec(WORM_SCRIPT, "darkweb", 1, "--controller", "home");
-  addLog(wormPid > 0 ? `蠕虫启动 PID=${wormPid}` : "⚠️ 蠕虫启动失败");
+  let wormPid = 0;
+  async function ensureWorm() {
+    if (!ns.fileExists(WORM_SCRIPT, "home")) return false;
+    // 检查 worm 是否存活
+    const running = ns.isRunning(wormPid);
+    if (running) return true;
+    // 重新部署
+    await ns.scp(WORM_SCRIPT, "darkweb");
+    wormPid = ns.exec(WORM_SCRIPT, "darkweb", 1, "--controller", "home");
+    addLog(wormPid > 0 ? `蠕虫启动 PID=${wormPid}` : "⚠️ 蠕虫启动失败");
+    return wormPid > 0;
+  }
+  await ensureWorm();
   drawDashboard();
 
   function drawDashboard() {
@@ -371,6 +379,9 @@ export async function main(ns) {
 
   let tick = 0;
   while (true) {
+    // 0. 确保蠕虫存活（darkweb 重建时会杀死旧进程）
+    await ensureWorm();
+
     // 1. 处理需要分析的报告
     for (const need of collectNeedReports()) await handleAnalysis(need);
 
