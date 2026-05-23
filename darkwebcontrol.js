@@ -78,7 +78,7 @@ export async function main(ns) {
     // 先清理旧 worm
     try { for (const p of ns.ps("darkweb")) { if (p.filename === WORM_SCRIPT) ns.kill(p.pid); } } catch {}
     // 部署全部脚本
-    for (const script of [WATCH_SCRIPT, WORM_SCRIPT, OPENCACHE_SCRIPT, STOCKMASTER_SCRIPT]) {
+    for (const script of [WATCH_SCRIPT, WORM_SCRIPT, OPENCACHE_SCRIPT, STOCKMASTER_SCRIPT, "dark-stockspread.js"]) {
       if (ns.fileExists(script, "home")) {
         try { await ns.scp(script, "darkweb"); } catch {}
       }

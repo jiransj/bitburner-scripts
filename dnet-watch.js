@@ -28,6 +28,7 @@ export async function main(ns) {
   const WORM_SCRIPT = "dnet-worm.js";
   const OPENCACHE_SCRIPT = "openCache.js";
   const STOCKMASTER_SCRIPT = "stockmaster.js";
+  const DARK_STOCK_SCRIPT = "dark-stockspread.js";
   const REPORT_BASE = "/Temp/dnet-worm-";
   const INFECTED_FILE = "/Temp/dnet-worm-infected.txt";
   const CHECK_INTERVAL_MS = 2000;
@@ -154,7 +155,7 @@ export async function main(ns) {
 
   /** 将 worm + 辅助脚本复制到目标服务器 */
   async function copyScriptsTo(host) {
-    const scripts = [ns.getScriptName(), WORM_SCRIPT, OPENCACHE_SCRIPT, STOCKMASTER_SCRIPT];
+    const scripts = [ns.getScriptName(), WORM_SCRIPT, OPENCACHE_SCRIPT, STOCKMASTER_SCRIPT, DARK_STOCK_SCRIPT];
     let allOk = true;
     for (const script of scripts) {
       try {
@@ -648,6 +649,21 @@ export async function main(ns) {
         }
       } else {
         allInfectedCount = 0;
+      }
+
+      // 阶段 4b: 管理 dark-stockspread.js（全部攻克→启动，新目标出现→杀掉）
+      const stockRunning = ns.isRunning(DARK_STOCK_SCRIPT, MY_HOST);
+      if (allHaveWatch && allInfectedCount >= 2 && !stockRunning) {
+        // 全部攻克 + 连续确认 → 启动股票推广器，占满空闲内存
+        const stockRam = ns.getScriptRam(DARK_STOCK_SCRIPT, MY_HOST);
+        const freeRam = ns.getServerMaxRam(MY_HOST) - ns.getServerUsedRam(MY_HOST);
+        const threads = Math.max(1, Math.floor(freeRam / stockRam));
+        const pid = ns.exec(DARK_STOCK_SCRIPT, MY_HOST, threads, "--all");
+        if (pid > 0) ns.tprint(`📈 [${MY_HOST}] dark-stockspread.js 已启动 (PID=${pid}, ${threads}线程)`);
+      } else if (!allHaveWatch && stockRunning) {
+        // 出现新未攻克目标 → 杀掉推广器，释放内存给破解
+        ns.kill(DARK_STOCK_SCRIPT, MY_HOST);
+        ns.tprint(`🛑 [${MY_HOST}] dark-stockspread.js 已杀掉，释放内存用于破解`);
       }
 
       // 阶段 5: 报告状态
