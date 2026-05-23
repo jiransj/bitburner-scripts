@@ -287,14 +287,16 @@ export async function main(ns) {
   async function deployWatchTo(host, password) {
     const watchScript = ns.getScriptName();
 
-    // 暗网操作前必须建立/重建会话连接（参考 darkwebcontrol.js dispatchTo 模式）
+    // 暗网操作前必须建立会话连接
+    // ⚠️ worm 退出后其 PID 的会话已销毁，connectToSession 不可靠
+    //    直接用 authenticate 重新认证，给当前脚本(PID)建立新会话
     if (password && password !== "已存在会话") {
       try {
-        await ns.dnet.connectToSession(host, password);
-        ns.print(`[${MY_HOST}] ${host}: 会话已连接`);
+        await ns.dnet.authenticate(host, password);
+        ns.print(`[${MY_HOST}] ${host}: 认证成功`);
       } catch (e) {
-        ns.print(`[${MY_HOST}] ${host}: connectToSession 失败: ${e}`);
-        // 继续尝试，可能已有会话
+        ns.print(`[${MY_HOST}] ${host}: 认证失败: ${e}，尝试 connectToSession`);
+        try { await ns.dnet.connectToSession(host, password); } catch {}
       }
     }
 
