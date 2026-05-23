@@ -50,6 +50,19 @@ export async function main(ns) {
     ns.print(`[${MY_HOST}] 本机标记为已感染`);
   }
 
+  // 启动时清理本服务器上所有残留的旧版 dnet-worm.js（v2.0 含有已废弃的 API）
+  (function cleanupOldWorms() {
+    let killed = 0;
+    for (const p of ns.ps(MY_HOST)) {
+      if (p.filename === WORM_SCRIPT) {
+        if (ns.kill(p.pid)) killed++;
+      }
+    }
+    if (killed > 0) {
+      ns.tprint(`🧹 [${MY_HOST}] 启动清理: 已杀掉 ${killed} 个旧版 worm 进程`);
+    }
+  })();
+
   // ======================== 报告机制 ========================
 
   /** 向控制中枢发送各类报告 */

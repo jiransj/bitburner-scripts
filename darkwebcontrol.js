@@ -361,6 +361,12 @@ export async function main(ns) {
     // 检查 watch 是否存活
     const running = ns.isRunning(watchPid);
     if (running) return true;
+    // 先杀掉 darkweb 上残留的旧版 dnet-worm.js（避免 REMOVED FUNCTION 错误）
+    try {
+      for (const p of ns.ps("darkweb")) {
+        if (p.filename === WORM_SCRIPT) ns.kill(p.pid);
+      }
+    } catch {}
     // 重新部署：把所有脚本都复制到 darkweb
     const scripts = [WATCH_SCRIPT, WORM_SCRIPT, OPENCACHE_SCRIPT, STOCKMASTER_SCRIPT];
     for (const script of scripts) {
