@@ -126,17 +126,25 @@ export async function main(ns) {
   });
 
   if (WATCH_MODE) {
-    // ----- 监视模式：持续运行 -----
+    // ----- 监视模式：检查一遍，没活就退出，让 watch 后续再唤我 -----
     ns.print(`[${HOST}] 进入监视模式，每 ${CHECK_INTERVAL_MS / 1000} 秒扫描一次缓存`);
+    let idleCycles = 0;
     while (true) {
       const result = await scanAndOpen();
 
-      // 如果没有缓存文件且不处于刚启动阶段，可以报告空闲状态
-      if (result.total === 0) {
-        reportToController("cache-idle", {
-          host: HOST,
-          timestamp: Date.now(),
-        });
+      // 没有新缓存可打开 → 计数，连续 2 次就退出
+      if (result.opened === 0) {
+        idleCycles++;
+        ns.print(`[${HOST}] 空闲 #${idleCycles}，${idleCycles >= 2 ? "退出等待" : "再扫一轮"}`);
+        if (idleCycles >= 2) {
+          reportToController("openCache-done", {
+            host: HOST, opened: 0, total: result.total, status: "idle_exit",
+          });
+          ns.print(`[${HOST}] 缓存已全部打开，退出等待`);
+          return; // 退出，watch 会在新缓存出现时重新启动
+        }
+      } else {
+        idleCycles = 0; // 打开了新缓存，重置计数器
       }
 
       await ns.sleep(CHECK_INTERVAL_MS);
