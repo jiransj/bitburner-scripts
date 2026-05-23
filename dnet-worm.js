@@ -171,6 +171,14 @@ export async function main(ns) {
       }
     }
 
+    // --- 模式 13: MasterMind（Bulls and Cows 猜数字） ---
+    // 提示 "Only a true master may pass" / "symbols are match exactly" / "wrong place"
+    // format=numeric, 反馈 data="exact,wrong" 如 "0,1"
+    if (format === "numeric" && pwLen > 0 && pwLen <= 6 &&
+        (hint.includes("master") || hint.includes("match exactly") || hint.includes("wrong place"))) {
+      return { type: "MasterMind", candidates: [] };
+    }
+
     // --- 通用字典 ---
     return { type: "Dictionary", candidates: COMMON_PASSWORDS };
   }
@@ -334,6 +342,66 @@ export async function main(ns) {
         } catch { /* 继续 */ }
       }
       return { success: false, needAnalysis: false };
+    }
+
+    // --- MasterMind（Bulls and Cows 猜数字） ---
+    // 算法：先用 000-999 探测每个数字的出现次数，再排列组合
+    if (type === "MasterMind") {
+      ns.print(`[${MY_HOST}] ${host}: MasterMind pwLen=${pwLen}`);
+      const pwLenNum = pwLen > 0 ? pwLen : 3;
+
+      // Phase 1: 探测每个数字 0-9 在密码中的出现次数
+      // 用 ddd 重复模式：data = [exact, wrong] → exact+wrong = 该数字出现次数
+      const digitCounts = new Array(10).fill(0);
+      let foundDigits = 0;
+      for (let d = 0; d <= 9; d++) {
+        const probe = String(d).repeat(pwLenNum);
+        try {
+          const result = await ns.dnet.authenticate(host, probe);
+          if (result.success) {
+            ns.tprint(`✅ [${MY_HOST}] ${host} 破解成功! 密码=${probe} (MasterMind)`);
+            return { success: true, password: probe, type: "MasterMind" };
+          }
+          if (result.data && typeof result.data === "string") {
+            const parts = result.data.split(",");
+            const exact = parseInt(parts[0]) || 0;
+            const wrong = parseInt(parts[1]) || 0;
+            digitCounts[d] = exact + wrong; // 该数字总出现次数
+            foundDigits += digitCounts[d];
+          }
+        } catch { /* 继续 */ }
+        await ns.sleep(5);
+      }
+
+      // 如果探测到的数字总数 != 密码长度，降级
+      if (foundDigits !== pwLenNum) {
+        ns.print(`[${MY_HOST}] ${host}: MasterMind 数字探测结果异常 (found=${foundDigits}, expected=${pwLenNum})`);
+        // 可能密码不全是数字，或探测有误，降级为 needAnalysis
+        return { success: false, needAnalysis: true, details };
+      }
+
+      // Phase 2: 生成所有排列并尝试
+      let digitPool = "";
+      for (let d = 0; d <= 9; d++) {
+        digitPool += String(d).repeat(digitCounts[d]);
+      }
+      const permutations = getUniquePermutations(digitPool);
+      ns.print(`[${MY_HOST}] ${host}: MasterMind ${permutations.length} 个排列待尝试`);
+
+      for (const pwd of permutations) {
+        try {
+          const result = await ns.dnet.authenticate(host, pwd);
+          if (result.success) {
+            ns.tprint(`✅ [${MY_HOST}] ${host} 破解成功! 密码=${pwd} (MasterMind)`);
+            return { success: true, password: pwd, type: "MasterMind" };
+          }
+          // 可以根据 data 反馈提前终止？但排列已经很少了，全部试完也不慢
+        } catch { /* 继续 */ }
+        await ns.sleep(5);
+      }
+
+      ns.print(`[${MY_HOST}] ${host}: MasterMind 所有排列失败`);
+      return { success: false, needAnalysis: true, details };
     }
 
     // 通用字典

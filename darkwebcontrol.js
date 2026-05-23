@@ -173,6 +173,12 @@ export async function main(ns) {
       }
     }
 
+    // --- MasterMind（Bulls and Cows）---
+    if (format === "numeric" && pwLen > 0 && pwLen <= 6 &&
+        (hint.includes("master") || hint.includes("match exactly") || hint.includes("wrong place"))) {
+      return { type: "MasterMind", candidates: [] };
+    }
+
     // --- 通用字典 ---
     return { type: "Dictionary", candidates: COMMON_PASSWORDS };
   }
@@ -247,6 +253,11 @@ export async function main(ns) {
         return { password: "■".repeat(2 * bufLen), type: "BufferOverflow" };
       }
       return null;
+    }
+
+    // MasterMind: 需要逐位探测+排列，指示 worm 做
+    if (type === "MasterMind") {
+      return { password: null, needMasterMind: true, type: "MasterMind" };
     }
 
     // 其他类型: 在候选列表中逐个尝试 (通过 worm)
@@ -337,6 +348,13 @@ export async function main(ns) {
       await dispatchTo(need.reporter,
         analysis.candidates.map(pwd => ({ op: "authenticate", host: need.host, password: pwd }))
       );
+      return;
+    }
+
+    // MasterMind 类型 → worm 已有算法，发个信号让它重试
+    if (analysis.needMasterMind) {
+      addLog(`🔑 ${need.host}: MasterMind 需要逐位探测，指示 worm 处理`);
+      // worm 的 --target-only 模式内置 MasterMind 算法，它会在下轮重试时处理
       return;
     }
 
