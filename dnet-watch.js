@@ -54,14 +54,16 @@ export async function main(ns) {
 
   // 启动时确保本服务器只有 1 份 dnet-watch（已有则退出自己）
   (function ensureSingleWatch() {
-    const myPid = ns.pid;
-    for (const p of ns.ps(MY_HOST)) {
-      if (p.filename === ns.getScriptName() && p.pid !== myPid) {
-        ns.tprint(`🚫 [${MY_HOST}] 已有 watch PID=${p.pid} 在运行，本实例退出`);
-        ns.exit();
-        return;
+    try {
+      const myPid = ns.pid;
+      for (const p of ns.ps(MY_HOST)) {
+        if (p.filename === ns.getScriptName() && p.pid !== myPid) {
+          ns.tprint(`🚫 [${MY_HOST}] 已有 watch 在运行，本实例退出`);
+          ns.exit();
+          return;
+        }
       }
-    }
+    } catch {} // 无法检测时继续，由主循环处理重复
   })();
 
   // 启动时清理本服务器上所有残留的旧版 dnet-worm.js
