@@ -54,6 +54,14 @@ export async function main(ns) {
     const options = getConfiguration(ns, argsSchema);
     disableLogs(ns, ['sleep', 'scan', 'exec', 'scp', 'ls', 'read', 'write', 'rm']);
 
+    // ── 运行位置检查 ──
+    if (ns.getHostname() !== "home") {
+        ns.tprint(`ERROR: 此脚本需要运行在 home 上(当前: ${ns.getHostname()})`);
+        ns.tprint("INFO: 请回到 home 终端再运行: run darknet-farmer.js --tail");
+        ns.exit();
+        return;
+    }
+
     // ── 前置检查 ──
     if (!ns.dnet) {
         ns.tprint("ERROR: 需要 Bitburner v3.0+，未检测到 ns.dnet API");
