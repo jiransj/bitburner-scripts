@@ -33,10 +33,8 @@ export function autocomplete(data, args) { data.flags(argsSchema); return []; }
 async function probe(ns, ...args) {
     const out = "/Temp/dnetp.txt";
     ns.rm(out);
-    // 确保探针在 darkweb 上
-    if (!ns.fileExists(PROBE, "darkweb")) await ns.scp(PROBE, "darkweb", "home");
     const pid = ns.exec(PROBE, "darkweb", { temporary: true }, ...args);
-    if (!pid) throw new Error("探针启动失败(darkweb 不支持 exec?)");
+    if (!pid) throw new Error("探针不在 darkweb 上。请手动: connect darkweb → 编辑器中新建 dnet-probe.js → 粘贴代码保存");
     // 等待结果（最长 15 秒）
     for (let i = 0; i < 75; i++) {
         await ns.sleep(200);
@@ -60,19 +58,29 @@ export async function main(ns) {
     // 检查 worker 存在
     if (!ns.fileExists(WORKER, "home")) { ns.tprint(`ERROR: 缺少 ${WORKER}`); ns.exit(); return; }
 
-    // 测试 darkweb 和探针
+    // 测试 darkweb 探针
     let dwOk = false;
     try {
-        if (await ns.scp(PROBE, "darkweb", "home")) {
-            const r = await probe(ns, "probe");
-            dwOk = r.ok;
-            ns.print(`INFO: ✓ darkweb 探针就绪, 发现 ${r.data?.length || 0} 个服务器`);
-        }
-    } catch (e) { ns.print(`WARN: darkweb 不可达: ${e}`); }
+        const r = await probe(ns, "probe");
+        dwOk = r.ok;
+        if (dwOk) ns.print(`INFO: ✓ darkweb 探针就绪, 发现 ${r.data?.length || 0} 个服务器`);
+    } catch (e) { ns.print(`WARN: ${e}`); }
 
     if (!dwOk) {
-        ns.tprint("WARNING: 请先购买 Tor 路由器(终端: buy Tor → connect darkweb)");
-        ns.tprint("INFO: 脚本将继续尝试连接...");
+        ns.tprint("=".repeat(60));
+        ns.tprint("  需要手动部署探针到 darkweb");
+        ns.tprint("=".repeat(60));
+        ns.tprint("  步骤1: 终端执行 → connect darkweb");
+        ns.tprint("  步骤2: 按 Ctrl+B 打开编辑器");
+        ns.tprint("  步骤3: 新建文件 → 文件名: dnet-probe.js");
+        ns.tprint("  步骤4: 粘贴代码(见下方说明) → 保存");
+        ns.tprint("  步骤5: 终端执行 → home");
+        ns.tprint("  步骤6: 重新运行本脚本");
+        ns.tprint("=".repeat(60));
+        ns.tprint("INFO: 探针代码很短(21行)，在: https://raw.githubusercontent.com/jiransj/bitburner-scripts/main/dnet-probe.js");
+        ns.tprint("INFO: 或者直接终端执行: wget https://raw.githubusercontent.com/jiransj/bitburner-scripts/main/dnet-probe.js dnet-probe.js");
+        ns.exit();
+        return;
     }
 
     ns.tprint("=".repeat(60));
