@@ -1,12 +1,12 @@
 /**
- * dark-stockspread.js — 最快刷 XP
+ * dark-stockspread.js — 最快刷 XP（多股并行版）
  *
- * 一次性把所有空闲内存给一个助手实例（多线程），
- * promoteStock XP 与线程数线性正比，等待时间不变。
- * 跑完立即下一轮，零浪费。
+ * 助手脚本用 Promise.all 同时推广多支股票。
+ * 每一轮等待时间 = max(8000×600/(600+cha), 200)ms，
+ * 但 N 支股票同时等，一轮拿 N 份 XP。
  *
  * 用法:
- *   run dark-stockspread.js AAPL GOOGL
+ *   run dark-stockspread.js AAPL GOOGL MSFT
  *
  * @param {NS} ns
  */
@@ -15,29 +15,27 @@ export async function main(ns) {
   const HELPER = "/Temp/_promote.js";
 
   const symbols = ns.args.filter(a => typeof a === "string" && !a.startsWith("--"));
-  if (symbols.length === 0) { ns.print(`用法: run dark-stockspread.js AAPL`); return; }
+  if (symbols.length === 0) { ns.print(`用法: run dark-stockspread.js AAPL GOOGL`); return; }
 
-  // 写助手脚本（一次性）
+  // 写助手脚本 — Promise.all 并行推广所有传入的股票
   if (!ns.fileExists(HELPER)) {
     ns.write(HELPER,
-      `export async function main(ns) { await ns.dnet.promoteStock(ns.args[0]); }`, "w");
+      `export async function main(ns) { await Promise.all(ns.args.map(s=>ns.dnet.promoteStock(s))); }`, "w");
   }
-  await ns.sleep(20); // 等文件写入
+  await ns.sleep(20);
 
   const ramPerThread = ns.getScriptRam(HELPER, HOST);
-  ns.print(`[${HOST}] 助手 ${ramPerThread}GB/线程 | 推广 ${symbols.join(",")}`);
+  ns.print(`[${HOST}] 助手 ${ramPerThread}GB/线程 | 批量推广 ${symbols.join(",")}`);
 
-  let idx = 0;
   while (true) {
     const free = ns.getServerMaxRam(HOST) - ns.getServerUsedRam(HOST);
     const threads = Math.max(1, Math.floor(free / ramPerThread));
-    const sym = symbols[idx++ % symbols.length];
 
-    const pid = ns.run(HELPER, threads, sym);
+    // 把所有股票符号一次传给助手，内部 Promise.all 并行
+    const pid = ns.run(HELPER, threads, ...symbols);
     if (pid === 0) { await ns.sleep(50); continue; }
 
-    // 等这个实例跑完（包含 promoteStock 内部延迟）
     while (ns.isRunning(pid)) await ns.sleep(50);
-    // 立刻下一轮，零间隙
+    // 一轮跑完，立即下一轮
   }
 }
