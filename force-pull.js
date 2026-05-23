@@ -5,8 +5,8 @@
  */
 const REPO = "https://raw.githubusercontent.com/jiransj/bitburner-scripts/main/";
 const FILES = [
+    "helpers.js",
     "darknet-farmer.js",
-    "darknet-proxy.js",
     "darknet-worker.js",
     "force-pull.js",
 ];
