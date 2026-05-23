@@ -1,22 +1,15 @@
 /**
- * dnet-worm.js — 暗网蠕虫 v2.0（精简版）
+ * dnet-worm.js — 暗网蠕虫 v2.1
  *
- * 轻量级暗网扩散脚本，复杂密码分析委托给 darkwebcontrol.js。
- * 工作流程:
- *   1. 探测邻居 (ns.dnet.probe)
- *   2. 对每个邻居: 快速尝试常见密码; 失败则回报 home 分析
- *   3. 执行 home 下发的指令 (authenticate / freeMemory / openCaches)
- *   4. 自复制到新攻破的服务器并启动副本
+ * 轻量自复制暗网扩散脚本，复杂密码分析委托 darkwebcontrol.js。
  *
- * 用法（由 darkwebcontrol.js 自动部署）:
- *   run dnet-worm.js --controller home
+ * 用法: run dnet-worm.js --controller home
  *
  * @param {NS} ns
  */
 export async function main(ns) {
   const SCRIPT_NAME = ns.getScriptName();
   const CONTROLLER = ns.args.includes("--controller") ? ns.args[ns.args.indexOf("--controller") + 1] : null;
-  const MAX_HOPS = 999;
   const REPORT_BASE = "/Temp/dnet-worm-";
   const MY_HOST = ns.getHostname();
 
@@ -28,21 +21,26 @@ export async function main(ns) {
   function markInfected(host) { infectedSet.add(host); saveInfected(); }
   if (!infectedSet.has(MY_HOST)) markInfected(MY_HOST);
 
-  // ── 迷你字典（仅供快速尝试，复杂分析走 home）──
-  const QUICK_PASSWORDS = ["", "admin", "password", "123456", "12345", "0000", "1234", "0", "1"];
+  // ── 快速字典（覆盖常见长度，减少回 home 分析的次数）──
+  const QUICK_DICT = [
+    "", "0", "1", "00", "01", "10", "11", "000", "001", "111", "123",
+    "0000", "1111", "1234", "2222", "3333", "5555", "7777", "9999",
+    "00000", "11111", "12345", "22222", "33333", "55555",
+    "000000", "111111", "123456", "222222", "666666", "888888",
+    "0000000", "1111111", "1234567", "7777777",
+    "admin", "password", "pass", "root",
+  ];
 
-  // ── 回报 home ──
+  /** 回报 home（已破解） */
   async function report(host, password, crackType) {
     if (!CONTROLLER) return;
     try {
       const d = ns.dnet.getServerDetails(host);
-      const msg = {
-        host, password, type: crackType,
+      const msg = { host, password, type: crackType,
         modelId: d.modelId, hint: d.passwordHint, data: d.data,
         format: d.passwordFormat, length: d.passwordLength,
         depth: d.depth, difficulty: d.difficulty,
-        reporter: MY_HOST, timestamp: Date.now(),
-      };
+        reporter: MY_HOST, timestamp: Date.now() };
       const path = REPORT_BASE + "crack-" + host.replace(/[^a-zA-Z0-9]/g, "_") + ".txt";
       ns.write(path, JSON.stringify(msg), "w");
       await ns.scp(path, CONTROLLER);
@@ -50,18 +48,16 @@ export async function main(ns) {
     } catch {}
   }
 
-  /** 回报需要分析的服务器信息 */
+  /** 回报需要分析的服务器 */
   async function reportForAnalysis(host) {
     if (!CONTROLLER) return false;
     try {
       const d = ns.dnet.getServerDetails(host);
-      const msg = {
-        host, password: null, type: "need_analysis",
+      const msg = { host, password: null, type: "need_analysis",
         modelId: d.modelId, hint: d.passwordHint, data: d.data,
         format: d.passwordFormat, length: d.passwordLength,
         depth: d.depth, difficulty: d.difficulty,
-        reporter: MY_HOST, timestamp: Date.now(),
-      };
+        reporter: MY_HOST, timestamp: Date.now() };
       const path = REPORT_BASE + "need-" + host.replace(/[^a-zA-Z0-9]/g, "_") + ".txt";
       ns.write(path, JSON.stringify(msg), "w");
       await ns.scp(path, CONTROLLER);
@@ -70,57 +66,61 @@ export async function main(ns) {
     } catch { return false; }
   }
 
-  /** 尝试快速破解 */
+  /** 快速破解 */
   async function quickCrack(host, details) {
-    // 长度0 → 空密码
-    if (details.passwordLength === 0) {
+    const fmt = details.passwordFormat || "";
+    const len = details.passwordLength || -1;
+    const hint = ((details.passwordHint || "") + " " + (details.data || "")).toLowerCase();
+
+    // 空密码
+    if (len === 0) {
       const r = await ns.dnet.authenticate(host, "");
       if (r.success) { await report(host, "", "NoPassword"); return true; }
     }
 
-    // 提示包含密码关键词 → 快速尝试几个常见值
-    const hint = ((details.passwordHint || "") + " " + (details.data || "")).toLowerCase();
+    // BufferOverflow: 直接通过
+    if (hint.includes("buffer is") && len > 0) {
+      const r = await ns.dnet.authenticate(host, "■".repeat(2 * len));
+      if (r.success) { await report(host, "", "BufferOverflow"); return true; }
+    }
 
     // 默认密码
     if (hint.includes("default") || hint.includes("factory")) {
-      for (const pwd of ["admin", "password", "0000", "12345"]) {
-        const r = await ns.dnet.authenticate(host, pwd);
-        if (r.success) { await report(host, pwd, "DefaultPassword"); return true; }
-        await ns.sleep(50);
+      for (const p of ["admin", "password", "0000", "12345"]) {
+        if (fmt === "numeric" && !/^\d+$/.test(p)) continue;
+        if (len > 0 && p.length !== len) continue;
+        const r = await ns.dnet.authenticate(host, p);
+        if (r.success) { await report(host, p, "DefaultPassword"); return true; }
       }
-    }
-
-    // NoPassword
-    if (hint.includes("no password") || hint.includes("not set")) {
-      const r = await ns.dnet.authenticate(host, "");
-      if (r.success) { await report(host, "", "NoPassword"); return true; }
     }
 
     // 狗名
     if (hint.includes("dog")) {
-      for (const pwd of ["fido", "spot", "rover", "max"]) {
-        const r = await ns.dnet.authenticate(host, pwd);
-        if (r.success) { await report(host, pwd, "DogNames"); return true; }
-        await ns.sleep(50);
+      for (const p of ["fido", "spot", "rover", "max"]) {
+        if (len > 0 && p.length !== len) continue;
+        const r = await ns.dnet.authenticate(host, p);
+        if (r.success) { await report(host, p, "DogNames"); return true; }
       }
     }
 
-    // BufferOverflow: "■".repeat(2 * length) 直接通过
-    if (hint.includes("buffer is") && details.passwordLength > 0) {
-      const probe = "■".repeat(2 * details.passwordLength);
-      const r = await ns.dnet.authenticate(host, probe);
-      if (r.success) { await report(host, "", "BufferOverflow"); return true; }
+    // EchoVuln: hint 末尾数字
+    if ((hint.includes("the password is") || hint.includes("the pin is") || hint.includes("the key is")) && fmt === "numeric") {
+      const words = hint.split(" ");
+      const last = words[words.length - 1].replace(/[^0-9]/g, "");
+      if (last && /^\d+$/.test(last) && last.length <= 3) {
+        const r = await ns.dnet.authenticate(host, last);
+        if (r.success) { await report(host, last, "EchoVuln"); return true; }
+      }
     }
 
-    // 通用常见密码
-    for (const pwd of QUICK_PASSWORDS) {
+    // 通用字典（按格式+长度过滤后尝试）
+    for (const pwd of QUICK_DICT) {
       if (pwd === "") continue;
-      // 格式过滤
-      if (details.passwordFormat === "numeric" && !/^\d+$/.test(pwd)) continue;
-      if (details.passwordLength > 0 && pwd.length !== details.passwordLength) continue;
+      if (fmt === "numeric" && !/^\d+$/.test(pwd)) continue;
+      if (fmt === "alphabetic" && !/^[a-zA-Z]+$/.test(pwd)) continue;
+      if (len > 0 && pwd.length !== len) continue;
       const r = await ns.dnet.authenticate(host, pwd);
       if (r.success) { await report(host, pwd, "QuickDict"); return true; }
-      await ns.sleep(50);
     }
 
     return false;
@@ -133,10 +133,9 @@ export async function main(ns) {
       if (!d.isOnline || d.blockedRam <= 0) return true;
       for (let i = 0; i < 30; i++) {
         const r = await ns.dnet.memoryReallocation(host);
-        if (r.success || r.code === 454 || (r.message && r.message.includes("No Host"))) {
-          const nd = ns.dnet.getServerDetails(host);
-          if (nd.blockedRam <= 0) return true;
-        } else { return false; }
+        if (r.success || r.code === 454) {
+          if (ns.dnet.getServerDetails(host).blockedRam <= 0) return true;
+        } else return false;
       }
       return true;
     } catch { return false; }
@@ -145,26 +144,27 @@ export async function main(ns) {
   /** 打开缓存 */
   async function openCaches() {
     try {
-      const allFiles = ns.ls(MY_HOST).filter(f => f.endsWith(".cache") || f.endsWith(".d.cache"));
-      for (const f of allFiles) {
+      for (const f of ns.ls(MY_HOST).filter(f => f.endsWith(".cache") || f.endsWith(".d.cache"))) {
         try { await ns.dnet.openCache(f, true); } catch {}
-        await ns.sleep(50);
       }
     } catch {}
   }
 
-  /** 传播到目标 */
+  /** 传播到目标（含重试） */
   async function propagateTo(host) {
     if (!CONTROLLER || infectedSet.has(host)) return true;
-    try {
-      const avail = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
-      const need = ns.getScriptRam(SCRIPT_NAME, host);
-      if (avail < need) return false;
-      if (!(await ns.scp(SCRIPT_NAME, host))) return false;
-      const threads = Math.floor(avail / need);
-      const pid = ns.exec(SCRIPT_NAME, host, threads, "--controller", CONTROLLER);
-      if (pid > 0) { markInfected(host); return true; }
-    } catch {}
+    const need = ns.getScriptRam(SCRIPT_NAME, MY_HOST);
+    for (let retry = 0; retry < 3; retry++) {
+      try {
+        const avail = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
+        if (avail < need) { ns.print(`[${MY_HOST}] ${host} RAM不足 ${ns.formatRam(avail)}<${ns.formatRam(need)}`); return false; }
+        if (!(await ns.scp(SCRIPT_NAME, host))) { await ns.sleep(500); continue; }
+        const threads = Math.floor(avail / need);
+        const pid = ns.exec(SCRIPT_NAME, host, Math.max(1, threads), "--controller", CONTROLLER);
+        if (pid > 0) { markInfected(host); ns.tprint(`🔄 [${MY_HOST}] → ${host} (${threads}t)`); return true; }
+      } catch (e) { ns.print(`[${MY_HOST}] ${host} 传播失败: ${e}`); }
+      await ns.sleep(1000);
+    }
     return false;
   }
 
@@ -177,9 +177,10 @@ export async function main(ns) {
       const cmd = JSON.parse(ns.read(cmdFile));
       ns.rm(cmdFile);
       for (const t of cmd.tasks || []) {
-        if (t.op === "authenticate" && t.host && t.password) {
+        if (t.op === "authenticate" && t.host && t.password !== undefined) {
           const r = await ns.dnet.authenticate(t.host, t.password);
           if (r.success) {
+            ns.tprint(`✅ [${MY_HOST}] 远程破解 ${t.host} 成功`);
             await report(t.host, t.password, "remote");
             await freeMemory(t.host);
             await propagateTo(t.host);
@@ -192,44 +193,39 @@ export async function main(ns) {
     } catch {}
   }
 
-  // ── 启动 ──
+  // ── 主循环 ──
   ns.tprint(`🐛 [${MY_HOST}] 蠕虫启动, 控制器=${CONTROLLER || "无"}`);
 
   while (true) {
-    // 开缓存 + 检查指令
     await openCaches();
     await checkCommand();
 
-    // 探测邻居
     let neighbors = [];
-    try { neighbors = ns.dnet.probe() || []; } catch { await ns.sleep(5000); continue; }
-    if (neighbors.length === 0) { await ns.sleep(10000); continue; }
+    try { neighbors = ns.dnet.probe() || []; } catch { await ns.sleep(3000); continue; }
+    if (neighbors.length === 0) { await ns.sleep(5000); continue; }
 
+    let allInfected = true;
     for (const host of neighbors) {
       if (infectedSet.has(host)) continue;
+      allInfected = false;
 
-      // 获取详情
       let details;
       try { details = ns.dnet.getServerDetails(host); } catch { continue; }
       if (!details.isOnline || details.hasSession) continue;
 
-      ns.print(`[${MY_HOST}] 🔍 ${host} (diff=${details.difficulty}, ${details.modelId})`);
+      ns.print(`[${MY_HOST}] 🔍 ${host} (${details.modelId})`);
 
-      // 尝试快速破解
-      const ok = await quickCrack(host, details);
-      if (ok) {
+      if (await quickCrack(host, details)) {
         await freeMemory(host);
         await propagateTo(host);
-        continue;
+      } else {
+        ns.print(`[${MY_HOST}] ${host}: → home 分析`);
+        await reportForAnalysis(host);
       }
-
-      // 快速破解失败 → 回报 home 分析
-      ns.print(`[${MY_HOST}] ${host}: 快速破解失败, 请求 home 分析`);
-      await reportForAnalysis(host);
     }
 
     // 全部攻破 → 尝试迁移
-    if (neighbors.every(h => infectedSet.has(h))) {
+    if (allInfected && neighbors.length > 0) {
       for (const n of neighbors) {
         if (infectedSet.has(n)) {
           try {
@@ -237,7 +233,7 @@ export async function main(ns) {
             if (d.isOnline && !d.isStationary) {
               for (let i = 0; i < 25; i++) {
                 const r = await ns.dnet.induceServerMigration(n);
-                if (r.success) break;
+                if (r.success) { ns.print(`[${MY_HOST}] ${n} 迁移成功`); break; }
                 await ns.sleep(100);
               }
               break;
@@ -247,6 +243,6 @@ export async function main(ns) {
       }
     }
 
-    await ns.sleep(15000);
+    await ns.sleep(5000);
   }
 }

@@ -280,15 +280,17 @@ export async function main(ns) {
     return needs;
   }
 
-  async function dispatchTo(reporter, tasks) {
+  // 缓存已知密码（reporter → password），避免重复读文件
+  const knownPasswords = {};
+
+  async function dispatchTo(reporter, tasks, reporterPassword) {
     if (tasks.length === 0) return;
     try {
-      // 尝试用已知密码建立会话
-      // 从之前收到的 crack 回报中找 reporter 的密码
-      const knownReports = collectCrackReports();
-      const cracksForReporter = knownReports[reporter] || [];
-      const selfPwd = cracksForReporter.find(c => c.host === reporter)?.password;
-      if (selfPwd) await ns.dnet.connectToSession(reporter, selfPwd);
+      // 建立会话
+      const pwd = reporterPassword || knownPasswords[reporter];
+      if (pwd) {
+        try { await ns.dnet.connectToSession(reporter, pwd); } catch {}
+      }
 
       const safeName = reporter.replace(/[^a-zA-Z0-9]/g, "_");
       const cmdFile = REPORT_BASE + "cmd-" + safeName + ".txt";
@@ -322,28 +324,24 @@ export async function main(ns) {
       return;
     }
 
-    // 有候选列表 → 逐一发给 worm 尝试
+    // 有候选列表 → 合并为一条指令发给 worm（worm 会顺序尝试）
     if (analysis.candidates && analysis.candidates.length > 0) {
       addLog(`🔑 ${need.host}: ${analysis.type} (${analysis.candidates.length}候选)`);
-      // 分批发送, 每批最多 10 个
-      for (let i = 0; i < analysis.candidates.length; i += 10) {
-        const batch = analysis.candidates.slice(i, i + 10);
-        await dispatchTo(need.reporter, batch.map(pwd => ({
-          op: "authenticate", host: need.host, password: pwd,
-        })));
-      }
+      await dispatchTo(need.reporter,
+        analysis.candidates.map(pwd => ({ op: "authenticate", host: need.host, password: pwd }))
+      );
       return;
     }
 
-    // Yesn't 类型 → 需要逐字符探测
+    // Yesn't 类型 → 逐字符探测
     if (analysis.needYesn) {
       const pwLen = need.length || 0;
       if (pwLen <= 0) { addLog(`⚠️ ${need.host}: Yesn't 未知长度`); return; }
       addLog(`🔑 ${need.host}: Yesn't 逐字符探测 len=${pwLen}`);
       const charset = "0123456789";
-      for (const ch of charset) {
-        await dispatchTo(need.reporter, [{ op: "authenticate", host: need.host, password: ch.repeat(pwLen) }]);
-      }
+      await dispatchTo(need.reporter,
+        [...charset].map(ch => ({ op: "authenticate", host: need.host, password: ch.repeat(pwLen) }))
+      );
       return;
     }
   }
@@ -374,18 +372,31 @@ export async function main(ns) {
   let tick = 0;
   while (true) {
     // 1. 处理需要分析的报告
-    const needs = collectNeedReports();
-    for (const need of needs) await handleAnalysis(need);
+    for (const need of collectNeedReports()) await handleAnalysis(need);
 
-    // 2. 处理普通破解回报
-    const crackReports = collectCrackReports();
-    for (const [reporter, cracks] of Object.entries(crackReports)) {
-      const tasks = buildTasks(cracks);
-      if (tasks.length > 0) await dispatchTo(reporter, tasks);
+    // 2. 处理普通破解回报，同时收集密码缓存
+    for (const f of ns.ls("home").filter(f => f.startsWith(REPORT_BASE + "crack-"))) {
+      try {
+        const r = JSON.parse(ns.read(f));
+        ns.rm(f);
+        // 缓存 reporter 的密码
+        if (r.reporter && r.password) knownPasswords[r.reporter] = r.password;
+        if (r.host && r.host !== r.reporter) {
+          // 非自身回报 → 让 reporter 执行后续操作
+          await dispatchTo(r.reporter, [
+            { op: "authenticate", host: r.host, password: r.password || "" },
+            { op: "freeMemory", host: r.host },
+          ], knownPasswords[r.reporter]);
+        } else if (r.host === r.reporter || !r.reporter) {
+          // 自身回报 → 只统计
+        }
+        stats.totalCracked++;
+        if (r.host) stats.totalNodes++;
+      } catch (e) { ns.rm(f); }
     }
 
     tick++;
-    if (tick % 3 === 0) drawDashboard();
+    if (tick % 6 === 0) drawDashboard();
     await ns.sleep(5000);
   }
 }
