@@ -392,62 +392,71 @@ export async function main(ns) {
 
       ns.print(`[${MY_HOST}] 探测到 ${neighbors.length} 个邻居`);
 
-      // 阶段 3: 对每个邻居快速检测 + 部署
-      // 注意：ns.ps(host) 在暗网服务器上不可用！改用 ns.dnet.getServerDetails + ns.isRunning
+      // 阶段 3: 对每个邻居执行检测 + 部署三步流程
+      // API 说明：在暗网服务器上，ns.dnet.* 系列可用，ns.ps(host) 不可用，
+      // ns.isRunning(script,host) 在有会话时可用，无会话时抛异常。
+      // 因此三步流程使用 try-catch 逐层降级：
       let deployedCount = 0;
       for (const host of neighbors) {
         if (host === MY_HOST) continue;
 
-        // ① 用 dnet API 检测是否在线 + 是否有会话
-        let hasSession = false;
-        let isOnline = false;
+        // ---- 第 1 步：获取服务器详情 ----
+        let d;
         try {
-          const d = ns.dnet.getServerDetails(host);
-          isOnline = d.isOnline;
-          hasSession = d.hasSession;
-        } catch { /* 完全无法访问 */ }
-
-        if (!isOnline) continue;
-
-        // ② 如果有会话，检测 watch 是否存活（ns.isRunning 在暗网可用）
-        let isWatchAlive = false;
-        if (hasSession) {
-          try { isWatchAlive = ns.isRunning(ns.getScriptName(), host); }
-          catch { /* 降级视为未运行 */ }
+          d = ns.dnet.getServerDetails(host);
+        } catch (e) {
+          ns.print(`[${MY_HOST}] ${host}: getServerDetails 失败: ${e}`);
+          continue;
         }
-
-        if (isWatchAlive) {
-          // watch 已存活，只需记录
-          if (!infectedSet.has(host)) { infectedSet.add(host); saveInfected(); }
+        if (!d.isOnline) {
+          ns.print(`[${MY_HOST}] ${host}: 离线，跳过`);
           continue;
         }
 
-        if (hasSession) {
-          // 有会话但无 watch → 直接部署，跳过破解（最快路径）
-          ns.print(`[${MY_HOST}] ${host}: 有会话无 watch，直接部署`);
+        // ---- 第 2 步：尝试检测 watch（有会话时才能成功） ----
+        let watchAlive = false;
+        if (d.hasSession) {
           try {
-            if (await deployWatchTo(host, "已存在会话")) deployedCount++;
-          } catch (e) { ns.print(`[${MY_HOST}] ${host}: 部署异常: ${e}`); }
+            watchAlive = ns.isRunning(ns.getScriptName(), host);
+          } catch {
+            // ns.isRunning 在有会话时不应该抛异常，如果抛了降级
+            watchAlive = false;
+          }
+        }
+
+        if (watchAlive) {
+          if (!infectedSet.has(host)) { infectedSet.add(host); saveInfected(); }
+          ns.print(`[${MY_HOST}] ${host}: watch ✓`);
           continue;
         }
 
-        // ③ 无会话 → 需要破解
-        ns.print(`[${MY_HOST}] ${host}: 无会话，开始破解`);
-        const sessionPwd = await ensureSession(host);
-        if (sessionPwd === null) {
-          ns.print(`[${MY_HOST}] ${host}: 无法建立会话，跳过`);
-          continue;
+        // ---- 第 3 步：无 watch，根据会话状态决策 ----
+        if (d.hasSession) {
+          // 有会话 → 直接部署
+          ns.print(`[${MY_HOST}] ${host}: 有会话，部署 watch`);
+          try { if (await deployWatchTo(host, "已存在会话")) deployedCount++; }
+          catch (e) { ns.print(`[${MY_HOST}] ${host}: 部署异常: ${e}`); }
+        } else {
+          // 无会话 → 破解
+          ns.print(`[${MY_HOST}] ${host}: 无会话，开始破解`);
+          const pwd = await ensureSession(host);
+          if (pwd === null) {
+            ns.print(`[${MY_HOST}] ${host}: 破解失败，下轮重试`);
+            continue;
+          }
+          try { if (await deployWatchTo(host, pwd)) deployedCount++; }
+          catch (e) { ns.print(`[${MY_HOST}] ${host}: 部署异常: ${e}`); }
         }
-        try {
-          if (await deployWatchTo(host, sessionPwd)) deployedCount++;
-        } catch (e) { ns.print(`[${MY_HOST}] ${host}: 部署异常: ${e}`); }
       }
 
-      // 阶段 4: 所有邻居是否均已部署 watch（即完全取得管理权限）
+      // 阶段 4: 检测全部邻居是否均已部署 watch
       const allHaveWatch = neighbors.every((h) => {
         if (h === MY_HOST) return true;
-        try { return ns.isRunning(ns.getScriptName(), h); }
-        catch { return false; }
+        try {
+          const dd = ns.dnet.getServerDetails(h);
+          if (!dd.isOnline || !dd.hasSession) return false;
+          return ns.isRunning(ns.getScriptName(), h);
+        } catch { return false; }
       });
 
       if (allHaveWatch) {
