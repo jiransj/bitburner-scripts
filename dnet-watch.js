@@ -393,35 +393,37 @@ export async function main(ns) {
       ns.print(`[${MY_HOST}] 探测到 ${neighbors.length} 个邻居`);
 
       // 阶段 3: 对每个邻居快速检测 + 部署
+      // 注意：ns.ps(host) 在暗网服务器上不可用！改用 ns.dnet.getServerDetails + ns.isRunning
       let deployedCount = 0;
       for (const host of neighbors) {
         if (host === MY_HOST) continue;
 
-        // 一次 API 调用同时检测：①是否有 watch 进程 ②是否有会话
-        let hostStatus = null; // 'watch' | 'session' | null
+        // ① 用 dnet API 检测是否在线 + 是否有会话
+        let hasSession = false;
+        let isOnline = false;
         try {
-          const procs = ns.ps(host);
-          if (procs.some((p) => p.filename === ns.getScriptName())) {
-            hostStatus = 'watch'; // watch 已在运行
-          } else {
-            hostStatus = 'session'; // 有会话但无 watch
-          }
-        } catch {
-          // ns.ps 失败 = 无会话
-          try {
-            const d = ns.dnet.getServerDetails(host);
-            if (d.isOnline && d.hasSession) hostStatus = 'session';
-          } catch {} // 完全无法访问
+          const d = ns.dnet.getServerDetails(host);
+          isOnline = d.isOnline;
+          hasSession = d.hasSession;
+        } catch { /* 完全无法访问 */ }
+
+        if (!isOnline) continue;
+
+        // ② 如果有会话，检测 watch 是否存活（ns.isRunning 在暗网可用）
+        let isWatchAlive = false;
+        if (hasSession) {
+          try { isWatchAlive = ns.isRunning(ns.getScriptName(), host); }
+          catch { /* 降级视为未运行 */ }
         }
 
-        if (hostStatus === 'watch') {
+        if (isWatchAlive) {
           // watch 已存活，只需记录
           if (!infectedSet.has(host)) { infectedSet.add(host); saveInfected(); }
           continue;
         }
 
-        if (hostStatus === 'session') {
-          // 已有会话但无 watch → 直接部署，跳过破解
+        if (hasSession) {
+          // 有会话但无 watch → 直接部署，跳过破解（最快路径）
           ns.print(`[${MY_HOST}] ${host}: 有会话无 watch，直接部署`);
           try {
             if (await deployWatchTo(host, "已存在会话")) deployedCount++;
@@ -429,7 +431,7 @@ export async function main(ns) {
           continue;
         }
 
-        // 无会话 → 需要破解
+        // ③ 无会话 → 需要破解
         ns.print(`[${MY_HOST}] ${host}: 无会话，开始破解`);
         const sessionPwd = await ensureSession(host);
         if (sessionPwd === null) {
@@ -444,7 +446,7 @@ export async function main(ns) {
       // 阶段 4: 所有邻居是否均已部署 watch（即完全取得管理权限）
       const allHaveWatch = neighbors.every((h) => {
         if (h === MY_HOST) return true;
-        try { return ns.ps(h).some((p) => p.filename === ns.getScriptName()); }
+        try { return ns.isRunning(ns.getScriptName(), h); }
         catch { return false; }
       });
 
