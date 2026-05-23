@@ -26,6 +26,8 @@ export async function main(ns) {
   ns.ui.resizeTail(580, 460);
 
   const stats = { totalCracked: 0, totalNodes: 0, dispatched: 0, failed: 0, analyzed: 0, startTime: Date.now() };
+  const cacheStats = { opened: 0, totalFiles: 0, activeNodes: 0 };
+  const wormStatus = {}; // host → { hopCount, infectedCount, allInfected, openCacheRunning, lastSeen }
   const recentLog = [];
   function addLog(msg) { recentLog.push(msg); if (recentLog.length > 8) recentLog.shift(); }
 
@@ -216,7 +218,8 @@ export async function main(ns) {
     // GuessNumber: 二分法需要远程执行, 返回范围让 worm 做
     // 但我们直接生成范围候选
     if (type === "GuessNumber") {
-      const maxMatch = hint.match(/between\s+\d+\s+and\s+(\d+)/i);
+      const guessHint = ((details.hint || "") + " " + (details.data || "")).toLowerCase();
+      const maxMatch = guessHint.match(/between\s+\d+\s+and\s+(\d+)/i);
       if (maxMatch) {
         const maxVal = parseInt(maxMatch[1]);
         if (maxVal <= 1000) {
@@ -236,7 +239,8 @@ export async function main(ns) {
 
     // BufferOverflow: 直接计算密码
     if (type === "BufferOverflow") {
-      const bufMatch = hint.match(/buffer is (\d+)/i);
+      const bufHint = ((details.hint || "") + " " + (details.data || "")).toLowerCase();
+      const bufMatch = bufHint.match(/buffer is (\d+)/i);
       if (bufMatch) {
         const bufLen = parseInt(bufMatch[1]);
         return { password: "■".repeat(2 * bufLen), type: "BufferOverflow" };
@@ -368,11 +372,18 @@ export async function main(ns) {
   function drawDashboard() {
     ns.clearLog();
     const s = Math.floor((Date.now() - stats.startTime) / 1000);
+    // 计算活跃蠕虫数
+    const now = Date.now();
+    const activeWorms = Object.entries(wormStatus).filter(([, st]) => (now - st.lastSeen) < 60000).length;
+    const primaryHost = Object.entries(wormStatus).find(([, st]) => st.allInfected)?.[0] || (wormStatus ? Object.keys(wormStatus)[0] : "等待中...");
+
     ns.print("╔══════════════════════════════════════════════════╗");
     ns.print("║       暗网控制中枢 v2.0                         ║");
     ns.print("╠══════════════════════════════════════════════════╣");
     ns.print(`║  运行: ${formatNumber(s)}s  破解: ${stats.totalCracked}  分析: ${stats.analyzed}`);
     ns.print(`║  节点: ${stats.totalNodes}  调度: ${stats.dispatched}  失败: ${stats.failed}`);
+    ns.print(`║  🎁缓存: ${cacheStats.opened}/${cacheStats.totalFiles}  活跃蠕虫: ${activeWorms}`);
+    ns.print(`║  主实例: ${primaryHost}`);
     ns.print("╠══════════════════════════════════════════════════╣");
     ns.print("║  最近活动:                                       ");
     for (const m of recentLog) ns.print(`║  ${m}`);
@@ -384,10 +395,46 @@ export async function main(ns) {
     // 0. 确保蠕虫存活（darkweb 重建时会杀死旧进程）
     await ensureWorm();
 
-    // 1. 处理需要分析的报告
+    // 1. 采集并处理蠕虫状态报告
+    for (const f of ns.ls("home").filter(f => f.startsWith(REPORT_BASE + "status-"))) {
+      try {
+        const r = JSON.parse(ns.read(f));
+        ns.rm(f);
+        if (r.host) {
+          wormStatus[r.host] = {
+            hopCount: r.hopCount ?? 0,
+            infectedCount: r.infectedCount ?? 0,
+            allInfected: r.allInfected ?? false,
+            openCacheRunning: r.openCacheRunning ?? false,
+            lastSeen: r.timestamp || Date.now(),
+          };
+        }
+      } catch (e) { ns.rm(f); }
+    }
+
+    // 2. 处理缓存报告
+    for (const f of ns.ls("home").filter(f => f.startsWith(REPORT_BASE + "cache-"))) {
+      try {
+        const r = JSON.parse(ns.read(f));
+        ns.rm(f);
+        cacheStats.opened += r.opened || 0;
+        cacheStats.totalFiles += r.total || 0;
+        if (r.host) cacheStats.activeNodes++;
+        addLog(`🎁 ${r.host}: 打开 ${r.opened}/${r.total} 缓存`);
+      } catch (e) { ns.rm(f); }
+    }
+
+    // 3. 清理 openCache 状态文件
+    for (const f of ns.ls("home").filter(f =>
+      f.startsWith(REPORT_BASE + "openCache-") || f.startsWith(REPORT_BASE + "cache-idle-")
+    )) {
+      try { ns.rm(f); } catch {}
+    }
+
+    // 4. 处理需要分析的报告
     for (const need of collectNeedReports()) await handleAnalysis(need);
 
-    // 2. 处理普通破解回报，同时收集密码缓存
+    // 5. 处理普通破解回报，同时收集密码缓存
     for (const f of ns.ls("home").filter(f => f.startsWith(REPORT_BASE + "crack-"))) {
       try {
         const r = JSON.parse(ns.read(f));
@@ -400,24 +447,11 @@ export async function main(ns) {
             { op: "authenticate", host: r.host, password: r.password || "" },
             { op: "freeMemory", host: r.host },
           ];
-          // 如果目标服务器有足够的 RAM，顺便部署 openCache.js
-          if (openCacheSize > 0 && ns.getServerMaxRam(r.host) >= openCacheSize + 2) {
-            // 先 scp openCache.js 到目标服务器
-            const pwd = knownPasswords[r.reporter] || r.password;
-            if (pwd) {
-              try { await ns.dnet.connectToSession(r.host, pwd); } catch {}
-            }
-            const scpOk = await ns.scp("openCache.js", r.host);
-            if (scpOk) {
-              tasks.push({ op: "exec", script: "openCache.js", target: r.host });
-            }
-          }
           await dispatchTo(r.reporter, tasks, knownPasswords[r.reporter]);
-        } else if (r.host === r.reporter || !r.reporter) {
-          // 自身回报 → 只统计
         }
         stats.totalCracked++;
         if (r.host) stats.totalNodes++;
+        addLog(`✅ ${r.reporter||'?'} 破解 ${r.host} (${r.type||'?'})`);
       } catch (e) { ns.rm(f); }
     }
 
