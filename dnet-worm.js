@@ -174,7 +174,8 @@ export async function main(ns) {
     // --- 模式 13: MasterMind（Bulls and Cows 猜数字） ---
     // 提示 "Only a true master may pass" / "symbols are match exactly" / "wrong place"
     // format=numeric, 反馈 data="exact,wrong" 如 "0,1"
-    if (format === "numeric" && pwLen > 0 && pwLen <= 6 &&
+    if ((details.passwordFormat || "") === "numeric" && (details.passwordLength || 0) > 0 &&
+        (details.passwordLength || 0) <= 6 &&
         (hint.includes("master") || hint.includes("match exactly") || hint.includes("wrong place"))) {
       return { type: "MasterMind", candidates: [] };
     }
