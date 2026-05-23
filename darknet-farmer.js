@@ -69,7 +69,8 @@ const argsSchema = [
     ['verbose', false],              // 详细日志
     ['phishing-only', false],        // 仅钓鱼模式(快捷)
     ['memory-only', false],          // 仅内存模式(快捷)
-    ['darkweb-try-connect', true],   // 尝试自动进入 darkweb(需SF4)
+    ['deploy-to-darkweb', true],    // 自动部署到 darkweb 上运行(需Tor)
+    ['deployed', false],            // 内部标记:是否已在 darkweb 上运行
     ['max-workers', 5],              // 同时运行的worker最大数量
     ['worker-threads', 1],           // worker线程数
     ['reserve', 0],                  // 保留资金
@@ -78,6 +79,7 @@ const argsSchema = [
 const WORKER_SCRIPT = "darknet-worker.js";
 const REPORT_PREFIX = "/Temp/darknet_report_";
 const CACHE_LOG_FILE = "/Temp/darknet_caches_found.txt";
+const SCRIPT_NAME = "darknet-farmer.js";
 
 export function autocomplete(data, args) {
     data.flags(argsSchema);
@@ -86,8 +88,77 @@ export function autocomplete(data, args) {
 
 /** @param {NS} ns */
 export async function main(ns) {
+    // ⚠️ 必须在 getConfiguration 之前保存原始参数(因为 ns.flags 会消费 ns.args)
+    const originalArgs = [...ns.args];
     const options = getConfiguration(ns, argsSchema);
     disableLogs(ns, ['sleep', 'scan', 'exec', 'scp', 'ls', 'read', 'write', 'rm']);
+
+    // ── 自部署: 自动复制到 darkweb 上运行 ──
+    if (options['deploy-to-darkweb'] && !options['deployed']) {
+        const currentHost = ns.getHostname();
+        const hasDarkweb = ns.scan("home").includes("darkweb");
+
+        if (currentHost !== "darkweb" && hasDarkweb) {
+            ns.tprint("🚀 正在部署到 darkweb ...");
+            // 复制本脚本和 worker 脚本到 darkweb
+            await ns.scp(SCRIPT_NAME, "darkweb", "home");
+            await ns.scp(WORKER_SCRIPT, "darkweb", "home");
+            // 构造传递给 darkweb 实例的参数
+            const passArgs = originalArgs.filter(a => !a.startsWith('--deploy'));
+            passArgs.push('--deployed', 'true');
+            // 在 darkweb 上启动本脚本
+            const pid = ns.exec(SCRIPT_NAME, "darkweb", { temporary: false }, ...passArgs);
+            if (pid > 0) {
+                ns.tprint(`SUCCESS: 已在 darkweb 上启动实例 (PID: ${pid})`);
+                ns.tprint("INFO: 本地(home)实例退出，所有操作由 darkweb 实例执行");
+            } else {
+                ns.tprint("ERROR: 在 darkweb 上启动失败，可能是 RAM 不足");
+            }
+            ns.exit();
+            return;
+        }
+    }
+
+    // ── 前置检查 ──
+    if (!ns.dnet) {
+        ns.tprint("ERROR: 需要 Bitburner v3.0+，未检测到 ns.dnet API");
+        ns.exit();
+        return;
+    }
+
+    // 检查 darkweb 入口
+    if (!ns.scan("home").includes("darkweb")) {
+        ns.tprint("WARNING: 未检测到 darkweb 入口，尝试购买 Tor 路由器...");
+        try {
+            if (ns.singularity.purchaseTor()) {
+                ns.tprint("SUCCESS: Tor 路由器已购买! 请重新运行脚本");
+            } else {
+                ns.tprint("WARNING: 购买 Tor 失败(资金不足?)，请手动购买 Tor");
+            }
+        } catch (e) {
+            ns.tprint("WARNING: 无法自动购买 Tor(需要 SF4/Singularity API)");
+        }
+        ns.tprint("INFO: 购买 Tor 后，脚本会自动部署到 darkweb 运行");
+        ns.exit();
+        return;
+    }
+
+    // 检查 WORKER_SCRIPT 是否存在
+    if (!ns.fileExists(WORKER_SCRIPT, ns.getHostname())) {
+        if (ns.getHostname() !== "home") {
+            await ns.scp(WORKER_SCRIPT, ns.getHostname(), "home");
+        }
+        if (!ns.fileExists(WORKER_SCRIPT, ns.getHostname())) {
+            ns.tprint(`ERROR: 找不到工作脚本 ${WORKER_SCRIPT}`);
+            ns.exit();
+            return;
+        }
+    }
+
+    ns.tprint("=".repeat(60));
+    ns.tprint(`  暗网自动收益脚本 v1.0 已启动 [运行于: ${ns.getHostname()}]`);
+    ns.tprint(`  模式: ${options['phishing'] ? '钓鱼 ' : ''}${options['memory-realloc'] ? '内存 ' : ''}${options['stock-promotion'] ? '股票 ' : ''}${options['labyrinth'] ? '迷宫' : ''}`);
+    ns.tprint("=".repeat(60));
 
     // 快捷模式
     if (options['phishing-only']) {
@@ -100,46 +171,6 @@ export async function main(ns) {
         options['memory-realloc'] = true;
         options['stock-promotion'] = false;
     }
-
-    // ── 前置检查 ──
-    if (!ns.dnet) {
-        ns.tprint("ERROR: 需要 Bitburner v3.0+，未检测到 ns.dnet API");
-        ns.exit();
-        return;
-    }
-
-    // ── 检查暗网入口(darkweb) ──
-    if (!ns.scan("home").includes("darkweb")) {
-        ns.tprint("WARNING: 未检测到 darkweb 入口，尝试购买 Tor 路由器...");
-        try {
-            if (ns.singularity.purchaseTor()) {
-                ns.tprint("SUCCESS: Tor 路由器已购买!");
-            } else {
-                ns.tprint("WARNING: 购买 Tor 失败(资金不足?)，请手动购买 Tor 后连接 darkweb");
-            }
-        } catch (e) {
-            ns.tprint("WARNING: 无法自动购买 Tor(需要 SF4/Singularity API)，请手动: buy Tor → connect darkweb");
-        }
-    } else {
-        ns.print("INFO: ✓ darkweb 入口可用");
-    }
-
-    // ── 尝试连接进入 darkweb ──
-    if (options['darkweb-try-connect']) {
-        await tryConnectToDarkweb(ns);
-    }
-
-    // 检查 WORKER_SCRIPT 是否存在
-    if (!ns.fileExists(WORKER_SCRIPT, "home")) {
-        ns.tprint(`ERROR: 找不到工作脚本 ${WORKER_SCRIPT}，请确保它与 darknet-farmer.js 在同一目录`);
-        ns.exit();
-        return;
-    }
-
-    ns.tprint("=".repeat(60));
-    ns.tprint("  暗网自动收益脚本 v1.0 已启动");
-    ns.tprint(`  模式: ${options['phishing'] ? '钓鱼 ' : ''}${options['memory-realloc'] ? '内存 ' : ''}${options['stock-promotion'] ? '股票 ' : ''}${options['labyrinth'] ? '迷宫' : ''}`);
-    ns.tprint("=".repeat(60));
 
     // ── 状态变量 ──
     const serverState = {
@@ -212,12 +243,13 @@ export async function main(ns) {
                 printReport(ns, serverState, totalStats, cycleCount);
             }
 
-            // ── 如果一直没有发现服务器，尝试重新进入 darkweb ──
+            // ── 如果一直没有发现服务器，给出提示 ──
             if (serverState.all.size === 0 && cycleCount % 12 === 0) {
-                ns.print("WARN: 尚未发现任何暗网服务器。请确保: ①已购买Tor ②已connect darkweb ③当前BitNode有暗网");
-                if (options['darkweb-try-connect']) {
-                    await tryConnectToDarkweb(ns);
-                }
+                ns.print("WARN: 尚未发现任何暗网服务器。可能原因:");
+                ns.print("  - 当前 BitNode 没有暗网内容");
+                ns.print("  - 暗网拓扑尚未生成(等待突变)");
+                ns.print("  - Charisma 等级不足");
+                ns.print(`INFO: 当前运行位置: ${ns.getHostname()}, darkweb入口: ${ns.scan("home").includes("darkweb")}`);
             }
 
         } catch (e) {
@@ -406,8 +438,8 @@ async function deployWorkers(ns, serverState, options, totalStats) {
                 if (mode === '') mode = 'all';
             }
 
-            // 复制 worker 脚本到目标服务器
-            await ns.scp(WORKER_SCRIPT, host, "home");
+            // 复制 worker 脚本到目标服务器(从当前所在服务器复制)
+            await ns.scp(WORKER_SCRIPT, host, ns.getHostname());
 
             // 启动 worker
             const pid = ns.exec(
@@ -686,39 +718,6 @@ function generatePasswords(hint, length) {
  */
 function sanitizeHost(host) {
     return host.replace(/[^a-zA-Z0-9_\-]/g, '_');
-}
-
-/**
- * 尝试连接进入 darkweb（暗网入口）
- * 如果当前不在 darkweb 上，通过 Singularity API 连接（需SF4）
- * @param {NS} ns
- * @returns {Promise<boolean>} 是否成功连接
- */
-async function tryConnectToDarkweb(ns) {
-    try {
-        // 检查是否已经在 darkweb 上
-        if (ns.getHostname() === "darkweb") {
-            return true;
-        }
-        // 检查 darkweb 是否可达
-        if (!ns.scan("home").includes("darkweb")) {
-            ns.print("WARN: darkweb 不可达，请先购买 Tor 路由器");
-            return false;
-        }
-        // 尝试通过 Singularity API 连接
-        try {
-            ns.singularity.connect("darkweb");
-            ns.print("SUCCESS: ✓ 已通过 Singularity 连接到 darkweb");
-            return true;
-        } catch (e) {
-            ns.print("WARN: 无法自动连接 darkweb(需要 SF4/Singularity API)");
-            ns.print("INFO: 请在终端手动执行: connect darkweb");
-            return false;
-        }
-    } catch (e) {
-        ns.print(`WARN: tryConnectToDarkweb 异常: ${e}`);
-        return false;
-    }
 }
 
 /**
