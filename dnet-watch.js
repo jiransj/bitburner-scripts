@@ -296,16 +296,22 @@ export async function main(ns) {
       }
     }
 
-    // 先复制所有脚本到目标（复制后文件才在目标上存在）
+    // 复制脚本到目标（尽量复制，即使部分失败也尝试启动 watch）
     const copyOk = await copyScriptsTo(host);
     if (!copyOk) {
-      ns.print(`[${MY_HOST}] ${host}: 脚本复制失败，无法部署 watch`);
-      return false;
+      ns.print(`[${MY_HOST}] ${host}: 部分脚本复制失败，仍尝试启动 watch`);
+      // 不 return false — 主脚本（watch自身）可能已存在
     }
 
-    // 文件已在目标上，此时 getScriptRam 才能正确获取
-    const watchRam = ns.getScriptRam(watchScript, host);
+    // 检查目标上是否有 watch 文件 + 足够 RAM
+    let watchRam = 0;
+    try { watchRam = ns.getScriptRam(watchScript, host); } catch {}
     const hostAvail = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
+
+    if (watchRam <= 0) {
+      ns.print(`[${MY_HOST}] ${host}: watch 脚本未成功复制到目标，无法启动`);
+      return false;
+    }
     if (hostAvail < watchRam) {
       ns.print(`[${MY_HOST}] ${host}: RAM不足(${ns.format.ram(hostAvail)} < ${ns.format.ram(watchRam)})，无法部署 watch`);
       return false;
@@ -616,6 +622,10 @@ export async function main(ns) {
 
       // 阶段 3b: 处理已完成的破译任务
       await processCompletedCracks();
+
+      // 阶段 3c: 仍有未攻克邻居时确保有 worm 进程可用（但避免与队列冲突）
+      // 如果队列为空且有未攻克服务器，确保 worm 文件存在即可（已被 copyScriptsTo 复制）
+      // 不需要启动常驻 worm，队列会在需要时 exec --target-only
 
       // 阶段 4: 检测全部邻居是否均已部署 watch
       const allHaveWatch = neighbors.every((h) => {
