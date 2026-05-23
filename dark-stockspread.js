@@ -1,58 +1,68 @@
 /**
- * dark-stockspread.js — 暗网股票推广器
+ * dark-stockspread.js — 暗网股票推广器（并行刷经验版）
  *
- * 通过 RAM-dodging 调用 ns.dnet.promoteStock(sym) 增加波动率。
- * 自动从 stockmaster.js 的输出文件读取持仓股票，也可手动指定。
+ * 写入一个临时助手脚本，然后用 ns.run() 并行启动多个实例。
+ * 每个实例独立调用 promoteStock，独立获得魅力经验。
+ * 不 await，占满内存就跑满。
  *
- * RAM 占用: ~0.1 GB（主脚本），2 GB 由临时脚本临时承担。
+ * RAM: 主脚本 ~0.1 GB + 每个助手实例 2 GB（临时承担）
  *
  * 用法:
- *   run dark-stockspread.js              自动联动 stockmaster.js
- *   run dark-stockspread.js AAPL GOOGL   手动指定
+ *   run dark-stockspread.js             自动联动 stockmaster.js
+ *   run dark-stockspread.js AAPL GOOGL  手动指定
  *
  * @param {NS} ns
  */
-import { getNsDataThroughFile } from './helpers.js';
-
 export async function main(ns) {
   const HOST = ns.getHostname();
-  const STOCK_DATA_FILE = "/Temp/stock-probabilities.txt";
+  const HELPER = "/Temp/_promote.js";
+  const STOCK_FILE = "/Temp/stock-probabilities.txt";
 
-  // 获取要推广的股票列表
+  // ---- 获取股票列表 ----
   let symbols = ns.args.filter(a => typeof a === "string" && !a.startsWith("--"));
-
   if (symbols.length === 0) {
-    // 未指定参数 → 从 stockmaster.js 输出文件读取持仓
-    if (ns.fileExists(STOCK_DATA_FILE)) {
+    if (ns.fileExists(STOCK_FILE)) {
       try {
-        const raw = JSON.parse(ns.read(STOCK_DATA_FILE));
-        for (const [sym, data] of Object.entries(raw)) {
-          if (data.sharesLong > 0 || data.sharesShort > 0) {
-            symbols.push(sym);
-          }
+        const raw = JSON.parse(ns.read(STOCK_FILE));
+        for (const [sym, d] of Object.entries(raw)) {
+          if (d.sharesLong > 0 || d.sharesShort > 0) symbols.push(sym);
         }
       } catch {}
     }
   }
+  if (symbols.length === 0) { ns.print(`[${HOST}] ❌ 无股票`); return; }
 
-  if (symbols.length === 0) {
-    ns.print(`[${HOST}] ❌ 无持仓股票，退出`);
-    return;
+  // ---- 写入助手脚本（只需写一次） ----
+  if (!ns.fileExists(HELPER)) {
+    ns.write(HELPER,
+      `export async function main(ns) { await ns.dnet.promoteStock(ns.args[0]); }`, "w");
   }
 
-  ns.print(`[${HOST}] 📢 promoteStock: ${symbols.join(", ")}`);
+  const helperRam = ns.getScriptRam(HELPER, HOST);
+  ns.print(`[${HOST}] 📢 promote ${symbols.join(",")} | 助手 ${helperRam}GB`);
 
-  // RAM-dodging: 通过临时脚本调用 promoteStock，主脚本只需 ~0.1 GB
+  // ---- 并行喷射循环 ----
+  // 每轮启动尽可能多的实例占满空闲内存
+  let idx = 0;
   while (true) {
-    for (const sym of symbols) {
-      try {
-        await getNsDataThroughFile(ns,
-          `ns.dnet.promoteStock(ns.args[0])`,
-          `/Temp/dark-stockspread-${HOST.replace(/[^a-zA-Z0-9]/g, "_")}.txt`,
-          [sym]);
-      } catch {
-        // promoteStock 内部处理节流，无需额外 sleep
-      }
+    const free = ns.getServerMaxRam(HOST) - ns.getServerUsedRam(HOST);
+    const maxBatch = Math.max(1, Math.floor(free / helperRam));
+    let launched = 0;
+
+    for (let i = 0; i < maxBatch; i++) {
+      const sym = symbols[idx % symbols.length];
+      idx++;
+      const pid = ns.run(HELPER, 1, sym);
+      if (pid > 0) launched++;
+      else break; // 内存满了
     }
+
+    if (launched === 0) {
+      // 一个都跑不动 → 等一会再试
+      await ns.sleep(100);
+    }
+    // 不 await 实例，让它们在后台并行跑
+    // 每 1s 刷新一轮喷射
+    await ns.sleep(1000);
   }
 }
