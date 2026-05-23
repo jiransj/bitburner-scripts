@@ -65,12 +65,14 @@ export async function main(ns) {
 
   // ======================== 报告机制 ========================
 
-  /** 向控制中枢发送各类报告 */
+  /** 向控制中枢发送各类报告（写本地 + SCP 到 home，中枢才能读到） */
   function reportToController(type, data) {
     try {
       const safeName = MY_HOST.replace(/[^a-zA-Z0-9]/g, "_");
       const reportFile = REPORT_BASE + type + "-" + safeName + ".txt";
       ns.write(reportFile, JSON.stringify(data), "w");
+      // ⚠️ SCP 到 home！否则中枢在 home 上读不到
+      ns.scp(reportFile, "home");
     } catch (e) {
       ns.print(`[${MY_HOST}] 报告失败: ${e}`);
     }
@@ -271,6 +273,8 @@ export async function main(ns) {
         data: details.data || "",
         timestamp: Date.now(),
       }), "w");
+      // ⚠️ SCP 到 home！否则中枢读不到 need-crack 请求
+      ns.scp(reportFile, "home");
       ns.print(`[${MY_HOST}] → home: 请求破解 ${host}`);
     } catch (e) {
       ns.print(`[${MY_HOST}] 发送破解请求失败: ${e}`);
