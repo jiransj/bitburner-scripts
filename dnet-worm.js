@@ -271,7 +271,8 @@ export async function main(ns) {
           else low = mid + 1;
         } catch { /* 继续 */ }
         attempts++;
-        await ns.sleep(50);
+        // 极短延迟避免 API 过载
+        await ns.sleep(5);
       }
       return { success: false, needAnalysis: true, details };
     }
@@ -301,7 +302,7 @@ export async function main(ns) {
             }
           }
         } catch { /* 继续 */ }
-        await ns.sleep(50);
+        await ns.sleep(5);
         if (password.every((c) => c !== null)) break;
       }
       if (password.every((c) => c !== null)) {
@@ -344,7 +345,7 @@ export async function main(ns) {
           return { success: true, password: pwd, type };
         }
       } catch { /* 继续 */ }
-      await ns.sleep(50);
+      // 无延迟，全速遍历字典
     }
 
     return { success: false, needAnalysis: true, details };
@@ -375,19 +376,19 @@ export async function main(ns) {
         ns.tprint(`❌ [${MY_HOST}] 本机不是暗网服务器`);
         return;
       }
-      await ns.sleep(5000);
+      await ns.sleep(2000);
       continue;
     }
     if (neighbors.length === 0) {
-      await ns.sleep(10000);
+      await ns.sleep(3000);
       continue;
     }
     for (const host of neighbors) {
       const result = await crackServer(host);
       writeResult(host, result.success, result.password, result.type, result.needAnalysis, result.details || null);
-      await ns.sleep(100);
+      // 已移除 100ms 延迟，连续处理
     }
-    await ns.sleep(15000);
+    await ns.sleep(5000);
   }
 }
 

@@ -30,7 +30,7 @@ export async function main(ns) {
   const STOCKMASTER_SCRIPT = "stockmaster.js";
   const REPORT_BASE = "/Temp/dnet-worm-";
   const INFECTED_FILE = "/Temp/dnet-worm-infected.txt";
-  const CHECK_INTERVAL_MS = 15000;
+  const CHECK_INTERVAL_MS = 8000;
 
   // ======================== 持久化状态 ========================
   let infectedSet = new Set();
@@ -277,11 +277,11 @@ export async function main(ns) {
     const pid = ns.exec(WORM_SCRIPT, MY_HOST, threads, "--target-only", host);
     if (pid <= 0) { ns.print(`[${MY_HOST}] ${host}: worm 启动失败`); return null; }
 
-    // 等待完成
+    // 等待完成（快速轮询）
     let waited = 0;
     while (waited < 120000) {
-      await ns.sleep(500);
-      waited += 500;
+      await ns.sleep(100);
+      waited += 100;
       if (!ns.isRunning(pid)) break;
     }
     if (ns.isRunning(pid)) { ns.kill(pid); return null; }
