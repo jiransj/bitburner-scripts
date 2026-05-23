@@ -52,7 +52,19 @@ export async function main(ns) {
     ns.print(`[${MY_HOST}] 本机标记为已感染`);
   }
 
-  // 启动时清理本服务器上所有残留的旧版 dnet-worm.js（v2.0 含有已废弃的 API）
+  // 启动时确保本服务器只有 1 份 dnet-watch（已有则退出自己）
+  (function ensureSingleWatch() {
+    const myPid = ns.pid;
+    for (const p of ns.ps(MY_HOST)) {
+      if (p.filename === ns.getScriptName() && p.pid !== myPid) {
+        ns.tprint(`🚫 [${MY_HOST}] 已有 watch PID=${p.pid} 在运行，本实例退出`);
+        ns.exit();
+        return;
+      }
+    }
+  })();
+
+  // 启动时清理本服务器上所有残留的旧版 dnet-worm.js
   (function cleanupOldWorms() {
     let killed = 0;
     for (const p of ns.ps(MY_HOST)) {
