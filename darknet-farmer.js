@@ -587,13 +587,15 @@ async function openKnownCaches(ns, knownCaches, serverState, totalStats, options
                     if (msg.includes('WSE') || msg.includes('TIX') || msg.includes('4S')) {
                         ns.tprint(`🎉 缓存发现股票账户/数据: ${msg}`);
                     }
-                }
-            } else {
+                } // end if(msg)
+            } // end if(proxyResult.ok)
+            else {
                 // 打开失败，可能是服务器离线或文件已不存在
                 knownCaches.delete(cacheName);
                 if (options['verbose']) {
                     ns.print(`WARN: 打开缓存 ${cacheName} 失败: ${proxyResult.data?.message || proxyResult.error}`);
-            }
+                }
+            } // end else
         } catch (e) {
             // 可能无法从当前服务器打开该缓存
             if (options['verbose']) {
