@@ -1,68 +1,43 @@
 /**
- * dark-stockspread.js — 暗网股票推广器（并行刷经验版）
+ * dark-stockspread.js — 最快刷 XP
  *
- * 写入一个临时助手脚本，然后用 ns.run() 并行启动多个实例。
- * 每个实例独立调用 promoteStock，独立获得魅力经验。
- * 不 await，占满内存就跑满。
- *
- * RAM: 主脚本 ~0.1 GB + 每个助手实例 2 GB（临时承担）
+ * 一次性把所有空闲内存给一个助手实例（多线程），
+ * promoteStock XP 与线程数线性正比，等待时间不变。
+ * 跑完立即下一轮，零浪费。
  *
  * 用法:
- *   run dark-stockspread.js             自动联动 stockmaster.js
- *   run dark-stockspread.js AAPL GOOGL  手动指定
+ *   run dark-stockspread.js AAPL GOOGL
  *
  * @param {NS} ns
  */
 export async function main(ns) {
   const HOST = ns.getHostname();
   const HELPER = "/Temp/_promote.js";
-  const STOCK_FILE = "/Temp/stock-probabilities.txt";
 
-  // ---- 获取股票列表 ----
-  let symbols = ns.args.filter(a => typeof a === "string" && !a.startsWith("--"));
-  if (symbols.length === 0) {
-    if (ns.fileExists(STOCK_FILE)) {
-      try {
-        const raw = JSON.parse(ns.read(STOCK_FILE));
-        for (const [sym, d] of Object.entries(raw)) {
-          if (d.sharesLong > 0 || d.sharesShort > 0) symbols.push(sym);
-        }
-      } catch {}
-    }
-  }
-  if (symbols.length === 0) { ns.print(`[${HOST}] ❌ 无股票`); return; }
+  const symbols = ns.args.filter(a => typeof a === "string" && !a.startsWith("--"));
+  if (symbols.length === 0) { ns.print(`用法: run dark-stockspread.js AAPL`); return; }
 
-  // ---- 写入助手脚本（只需写一次） ----
+  // 写助手脚本（一次性）
   if (!ns.fileExists(HELPER)) {
     ns.write(HELPER,
       `export async function main(ns) { await ns.dnet.promoteStock(ns.args[0]); }`, "w");
   }
+  await ns.sleep(20); // 等文件写入
 
-  const helperRam = ns.getScriptRam(HELPER, HOST);
-  ns.print(`[${HOST}] 📢 promote ${symbols.join(",")} | 助手 ${helperRam}GB`);
+  const ramPerThread = ns.getScriptRam(HELPER, HOST);
+  ns.print(`[${HOST}] 助手 ${ramPerThread}GB/线程 | 推广 ${symbols.join(",")}`);
 
-  // ---- 并行喷射循环 ----
-  // 每轮启动尽可能多的实例占满空闲内存
   let idx = 0;
   while (true) {
     const free = ns.getServerMaxRam(HOST) - ns.getServerUsedRam(HOST);
-    const maxBatch = Math.max(1, Math.floor(free / helperRam));
-    let launched = 0;
+    const threads = Math.max(1, Math.floor(free / ramPerThread));
+    const sym = symbols[idx++ % symbols.length];
 
-    for (let i = 0; i < maxBatch; i++) {
-      const sym = symbols[idx % symbols.length];
-      idx++;
-      const pid = ns.run(HELPER, 1, sym);
-      if (pid > 0) launched++;
-      else break; // 内存满了
-    }
+    const pid = ns.run(HELPER, threads, sym);
+    if (pid === 0) { await ns.sleep(50); continue; }
 
-    if (launched === 0) {
-      // 一个都跑不动 → 等一会再试
-      await ns.sleep(100);
-    }
-    // 不 await 实例，让它们在后台并行跑
-    // 每 1s 刷新一轮喷射
-    await ns.sleep(1000);
+    // 等这个实例跑完（包含 promoteStock 内部延迟）
+    while (ns.isRunning(pid)) await ns.sleep(50);
+    // 立刻下一轮，零间隙
   }
 }
