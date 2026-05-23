@@ -19,9 +19,9 @@ export async function main(ns) {
   const REPORT_BASE = "/Temp/dnet-worm-";
 
   ns.disableLog('ALL');
-  ns.tail();
+  ns.ui.openTail();
   ns.clearLog();
-  ns.resizeTail(580, 460);
+  ns.ui.resizeTail(580, 460);
 
   const stats = { totalCracked: 0, totalNodes: 0, dispatched: 0, failed: 0, analyzed: 0, startTime: Date.now() };
   const recentLog = [];
