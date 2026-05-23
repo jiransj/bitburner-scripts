@@ -151,7 +151,7 @@ export async function main(ns) {
 
   /** 将 worm + 辅助脚本复制到目标服务器 */
   async function copyScriptsTo(host) {
-    const scripts = [WORM_SCRIPT, OPENCACHE_SCRIPT, STOCKMASTER_SCRIPT];
+    const scripts = [ns.getScriptName(), WORM_SCRIPT, OPENCACHE_SCRIPT, STOCKMASTER_SCRIPT];
     let allOk = true;
     for (const script of scripts) {
       try {
