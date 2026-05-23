@@ -19,15 +19,23 @@ export async function main(ns) {
   function save() { ns.write(INFECTED, JSON.stringify([...infected]), "w"); }
   if (!infected.has(MY_HOST)) { infected.add(MY_HOST); save(); }
 
-  // ── 快速字典 ──
-  const DICT = [
-    "","0","1","00","01","10","11","000","001","111","123",
-    "0000","1111","1234","2222","3333","5555","7777","9999",
-    "00000","11111","12345","22222","33333","55555",
-    "000000","111111","123456","222222","666666","888888",
-    "0000000","1111111","1234567","7777777",
-    "admin","password","pass","root",
+  // ── 密码字典（数组不占 RAM，仅 API 调用数影响内存）──
+  const COMMON = [
+    "123456","password","12345678","qwerty","123456789","12345","1234","111111",
+    "1234567","dragon","123123","baseball","abc123","football","monkey","letmein",
+    "696969","shadow","master","666666","qwertyuiop","123321","mustang","1234567890",
+    "michael","654321","superman","1qaz2wsx","7777777","121212","0","qazwsx",
+    "123qwe","trustno1","jordan","jennifer","zxcvbnm","asdfgh","hunter","buster",
+    "soccer","harley","batman","andrew","tigger","sunshine","iloveyou","2000",
+    "charlie","robert","thomas","hockey","ranger","daniel","starwars","112233",
+    "george","computer","michelle","jessica","pepper","1111","zxcvbn","555555",
+    "11111111","131313","freedom","777777","pass","maggie","159753","aaaaaa",
+    "ginger","princess","joshua","cheese","amanda","summer","love","ashley",
+    "6969","nicole","chelsea","biteme","matthew","access","yankees","987654321",
+    "dallas","austin","thunder","taylor","matrix","admin","0000","fido","spot","rover","max",
   ];
+  const DEFAULTS = ["admin","password","0000","12345"];
+  const DOGS = ["fido","spot","rover","max","buddy","bella","charlie","luna"];
 
   /** 回报 home */
   async function report(host, pwd, type) {
@@ -75,14 +83,14 @@ export async function main(ns) {
       if ((await ns.dnet.authenticate(host, "■".repeat(2*len))).success) { await report(host, "", "BufferOverflow"); return true; }
     }
     if (hint.includes("default") || hint.includes("factory")) {
-      for (const p of ["admin","password","0000","12345"]) {
+      for (const p of DEFAULTS) {
         if (fmt==="numeric" && !/^\d+$/.test(p)) continue;
         if (len>0 && p.length!==len) continue;
         if ((await ns.dnet.authenticate(host, p)).success) { await report(host, p, "DefaultPassword"); return true; }
       }
     }
     if (hint.includes("dog")) {
-      for (const p of ["fido","spot","rover","max"]) {
+      for (const p of DOGS) {
         if (len>0 && p.length!==len) continue;
         if ((await ns.dnet.authenticate(host, p)).success) { await report(host, p, "DogNames"); return true; }
       }
@@ -93,7 +101,7 @@ export async function main(ns) {
         if ((await ns.dnet.authenticate(host, last)).success) { await report(host, last, "EchoVuln"); return true; }
       }
     }
-    for (const p of DICT) {
+    for (const p of COMMON) {
       if (p==="") continue;
       if (fmt==="numeric" && !/^\d+$/.test(p)) continue;
       if (fmt==="alphabetic" && !/^[a-zA-Z]+$/.test(p)) continue;
