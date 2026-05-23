@@ -636,7 +636,7 @@ export async function main(ns) {
     if (!CONTROLLER) return;
     const cmdFile = REPORT_BASE + "cmd-" + MY_HOST.replace(/[^a-zA-Z0-9]/g, "_") + ".txt";
     try {
-      if (!ns.exists(cmdFile)) return;
+      if (!ns.fileExists(cmdFile)) return;
       const cmd = JSON.parse(ns.read(cmdFile));
       ns.rm(cmdFile);
       ns.print(`[${MY_HOST}] 执行指令: ${cmd.op || "批量"}`);

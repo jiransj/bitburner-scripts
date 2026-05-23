@@ -61,7 +61,7 @@ export async function main(ns) {
 
   // ── 阶段一：部署 ──
   ns.print("🚀 部署蠕虫到 darkweb...");
-  if (!ns.exists(WORM_SCRIPT, "home")) {
+  if (!ns.fileExists(WORM_SCRIPT, "home")) {
     ns.tprint(`❌ ${WORM_SCRIPT} 不存在`);
     return;
   }
