@@ -76,9 +76,54 @@ const argsSchema = [
 ];
 
 const WORKER_SCRIPT = "darknet-worker.js";
+const PROXY_SCRIPT = "darknet-proxy.js";
 const REPORT_PREFIX = "/Temp/darknet_report_";
 const CACHE_LOG_FILE = "/Temp/darknet_caches_found.txt";
 const SCRIPT_NAME = "darknet-farmer.js";
+
+/**
+ * 通过 darknet-proxy.js 在 darkweb 上执行 dnet API 调用
+ * darkweb 只有 16GB RAM，主脚本无法在上面运行，所以用此轻量代理。
+ * @param {NS} ns
+ * @param {string} operation - probe | auth | labreport | labradar
+ * @param {object} params - 操作参数
+ * @param {number} timeoutMs - 等待超时(ms)
+ * @returns {Promise<{ok: boolean, data: any, error: string|null}>}
+ */
+async function callDarknetProxy(ns, operation, params = {}, timeoutMs = 15000) {
+    const resultFile = `/Temp/dnet-proxy-${operation}.txt`;
+
+    // 确保 proxy 脚本在 darkweb 上
+    if (!ns.fileExists(PROXY_SCRIPT, "darkweb")) {
+        const copied = await ns.scp(PROXY_SCRIPT, "darkweb", "home");
+        if (!copied) throw new Error(`无法复制 ${PROXY_SCRIPT} 到 darkweb`);
+    }
+
+    // 删除上次的结果文件
+    ns.rm(resultFile);
+
+    // 在 darkweb 上执行 proxy
+    const pid = ns.exec(PROXY_SCRIPT, "darkweb", { temporary: true },
+        operation, JSON.stringify(params));
+    if (!pid) throw new Error(`在 darkweb 上启动 proxy 失败(RAM不足?)`);
+
+    // 等待结果
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        await ns.sleep(200);
+        if (ns.fileExists(resultFile)) {
+            const raw = ns.read(resultFile);
+            if (raw) {
+                try {
+                    return JSON.parse(raw);
+                } catch (e) {
+                    throw new Error(`proxy 结果解析失败: ${e}`);
+                }
+            }
+        }
+    }
+    throw new Error(`proxy 操作 ${operation} 超时(${timeoutMs}ms)`);
+}
 
 export function autocomplete(data, args) {
     data.flags(argsSchema);
@@ -90,14 +135,6 @@ export async function main(ns) {
     const options = getConfiguration(ns, argsSchema);
     disableLogs(ns, ['sleep', 'scan', 'exec', 'scp', 'ls', 'read', 'write', 'rm']);
 
-    // ── 连接到 darkweb（把玩家终端移入暗网，ns.dnet 才能工作）──
-    // 注意: darkweb 只有 16GB RAM，脚本无法在上面运行。
-    //       所以脚本留在 home 上，通过 Singularity 把玩家"送"进 darkweb。
-    //       ns.dnet API 使用玩家的终端位置，而非脚本运行位置。
-    if (options['deploy-to-darkweb']) {
-        await tryConnectToDarkweb(ns);
-    }
-
     // ── 前置检查 ──
     if (!ns.dnet) {
         ns.tprint("ERROR: 需要 Bitburner v3.0+，未检测到 ns.dnet API");
@@ -105,18 +142,16 @@ export async function main(ns) {
         return;
     }
 
-    // 检查暗网 API 可用性
-    if (!ns.dnet) {
-        ns.tprint("ERROR: 需要 Bitburner v3.0+，未检测到 ns.dnet API");
-        ns.exit();
-        return;
-    }
-    // 测试 probe 是否可用（不阻塞，仅警告）
-    try {
-        ns.dnet.probe();
-    } catch (e) {
-        ns.tprint("WARNING: dnet.probe() 不可用，请确保已连接 darkweb (终端: connect darkweb)");
-        ns.tprint("INFO: 脚本将继续运行，每轮循环会重试探测");
+    // ── 检查 darkweb 可访问性 ──
+    if (options['deploy-to-darkweb']) {
+        const proxyOk = await ensureDarkwebProxy(ns);
+        if (!proxyOk) {
+            ns.tprint("WARNING: darkweb 不可达。请先购买 Tor 路由器");
+            ns.tprint("INFO: 购买后重新运行脚本即可自动部署");
+            ns.exit();
+            return;
+        }
+        ns.print("INFO: ✓ darknet-proxy 已部署到 darkweb");
     }
 
     // 检查 WORKER_SCRIPT 是否存在
@@ -250,55 +285,50 @@ async function exploreAndMap(ns, serverState) {
     let newFound = 0;
     const toExplore = new Set();
 
-    // 尝试探测暗网服务器
+    // 通过 darknet-proxy 探测暗网服务器（脚本在 home 上，dnet 通过 darkweb 代理执行）
     try {
-        const neighbors = ns.dnet.probe();
-        if (neighbors.length > 0) {
-            ns.print(`INFO: dnet.probe() 发现 ${neighbors.length} 个服务器: ${neighbors.join(', ')}`);
-        }
-        for (const host of neighbors) {
-            if (!serverState.all.has(host)) {
-                toExplore.add(host);
+        const result = await callDarknetProxy(ns, 'probe', {}, 20000);
+        if (result.ok && result.data) {
+            const neighbors = result.data;
+            if (neighbors.length > 0) {
+                ns.print(`INFO: 发现 ${neighbors.length} 个暗网服务器`);
             }
+            for (const svr of neighbors) {
+                if (!serverState.all.has(svr.host)) {
+                    toExplore.add(svr.host);
+                    // 直接记录服务器详情
+                    serverState.all.set(svr.host, {
+                        host: svr.host,
+                        isOnline: svr.isOnline,
+                        depth: svr.depth || 0,
+                        difficulty: svr.difficulty || 0,
+                        requiredCharisma: svr.requiredCharisma || 0,
+                        passwordHint: svr.passwordHint || '',
+                        passwordLength: svr.passwordLength || 0,
+                        isStationary: false,
+                        hasSession: svr.hasSession || false,
+                        blockedRam: svr.blockedRam || 0,
+                        discoveredAt: Date.now(),
+                    });
+                    if (svr.hasSession) {
+                        serverState.authed.add(svr.host);
+                    }
+                    newFound++;
+                }
+            }
+        } else {
+            ns.print(`WARN: 暗网探测失败: ${result.error}`);
         }
     } catch (e) {
-        // probe失败，可能不在暗网中
-        ns.print(`WARN: dnet.probe() 失败(${e})，可能未连接到 darkweb`);
+        ns.print(`WARN: 暗网探测异常: ${e}`);
     }
 
-    // 获取已知服务器的详细信息
+    // 补充处理：toExplore 中尚未被 proxy 填充的（来自 worker 报告的邻居）
     for (const host of toExplore) {
-        try {
-            const details = ns.dnet.getServerDetails(host);
-            if (details.isOnline) {
-                serverState.all.set(host, {
-                    host,
-                    isOnline: true,
-                    depth: details.depth || 0,
-                    difficulty: details.difficulty || 0,
-                    requiredCharisma: details.requiredCharismaSkill || 0,
-                    passwordHint: details.passwordHint || '',
-                    passwordLength: details.passwordLength || 0,
-                    isStationary: details.isStationary || false,
-                    hasSession: details.hasSession || false,
-                    isConnected: details.isConnectedToCurrentServer || false,
-                    blockedRam: details.blockedRam || 0,
-                    discoveredAt: Date.now(),
-                });
-                if (details.hasSession) {
-                    serverState.authed.add(host);
-                }
-                newFound++;
-            }
-        } catch (e) {
-            // 无法获取细节，但仍记录
-            serverState.all.set(host, {
-                host,
-                isOnline: false,
-                discoveredAt: Date.now(),
-            });
-            newFound++;
-        }
+        if (serverState.all.has(host) && serverState.all.get(host).depth !== undefined) continue;
+        // 标记为已知但不详
+        serverState.all.set(host, { host, isOnline: false, discoveredAt: Date.now() });
+        newFound++;
     }
 
     if (newFound > 0) {
@@ -357,27 +387,19 @@ async function attemptAuthentication(ns, serverState) {
     for (const info of unauthed) {
         if (serverState.authed.has(info.host)) continue;
 
-        // 根据密码提示生成尝试密码
+        // 生成候选密码列表，通过 proxy 批量尝试
         const passwords = generatePasswords(info.passwordHint, info.passwordLength);
-
-        for (const pwd of passwords) {
-            try {
-                const result = ns.dnet.authenticate(info.host, pwd);
-                if (result.success) {
-                    serverState.authed.add(info.host);
-                    // 更新服务器信息中的会话状态
-                    const stored = serverState.all.get(info.host);
-                    if (stored) stored.hasSession = true;
-                    ns.print(`SUCCESS: 认证成功! ${info.host} (密码: ${pwd})`);
-                    break;
-                }
-            } catch (e) {
-                // 认证失败继续
+        try {
+            const result = await callDarknetProxy(ns, 'auth', { host: info.host, password: passwords }, 30000);
+            if (result.ok && result.data?.success) {
+                serverState.authed.add(info.host);
+                const stored = serverState.all.get(info.host);
+                if (stored) stored.hasSession = true;
+                ns.print(`SUCCESS: 认证成功! ${info.host} (密码: ${result.data.password})`);
             }
-            await ns.sleep(50);
+        } catch (e) {
+            ns.print(`WARN: 认证 ${info.host} 失败: ${e}`);
         }
-
-        await ns.sleep(100);
     }
 }
 
@@ -540,37 +562,37 @@ async function openKnownCaches(ns, knownCaches, serverState, totalStats, options
 
     for (const cacheName of toOpen) {
         try {
-            const result = ns.dnet.openCache(cacheName, false); // 不静默(显示Toast)
-            if (result.success) {
+            const proxyResult = await callDarknetProxy(ns, 'openCache', { fileName: cacheName }, 15000);
+            if (proxyResult.ok && proxyResult.data?.success) {
                 opened++;
                 knownCaches.delete(cacheName);
+                const msg = proxyResult.data.message || '';
                 // 从日志文件中标记为已打开(通过在文件末尾追加标记)
                 ns.write(CACHE_LOG_FILE,
                     JSON.stringify({ fileName: cacheName, opened: true, time: Date.now() }) + '\n', 'a');
 
                 // 尝试从消息中提取收益信息
-                if (result.message) {
-                    ns.print(`SUCCESS: 🎁 缓存收益: ${result.message}`);
-                    if (result.message.includes('$')) {
+                if (msg) {
+                    ns.print(`SUCCESS: 🎁 缓存收益: ${msg}`);
+                    if (msg.includes('$')) {
                         // 粗略提取金额... 实际上难以精确获取
                         moneyReport += 1; // 标记为有金钱收益
                     }
-                    if (result.message.includes('augmentation') || result.message.includes('Augmentation')) {
-                        ns.tprint(`🎉 重大发现! 缓存开出了 Augmentation: ${result.message}`);
+                    if (msg.includes('augmentation') || msg.includes('Augmentation')) {
+                        ns.tprint(`🎉 重大发现! 缓存开出了 Augmentation: ${msg}`);
                     }
-                    if (result.message.includes('program') || result.message.includes('Program')) {
-                        ns.tprint(`🎉 缓存发现程序: ${result.message}`);
+                    if (msg.includes('program') || msg.includes('Program')) {
+                        ns.tprint(`🎉 缓存发现程序: ${msg}`);
                     }
-                    if (result.message.includes('WSE') || result.message.includes('TIX') || result.message.includes('4S')) {
-                        ns.tprint(`🎉 缓存发现股票账户/数据: ${result.message}`);
+                    if (msg.includes('WSE') || msg.includes('TIX') || msg.includes('4S')) {
+                        ns.tprint(`🎉 缓存发现股票账户/数据: ${msg}`);
                     }
                 }
             } else {
                 // 打开失败，可能是服务器离线或文件已不存在
                 knownCaches.delete(cacheName);
                 if (options['verbose']) {
-                    ns.print(`WARN: 打开缓存 ${cacheName} 失败: ${result.message}`);
-                }
+                    ns.print(`WARN: 打开缓存 ${cacheName} 失败: ${proxyResult.data?.message || proxyResult.error}`);
             }
         } catch (e) {
             // 可能无法从当前服务器打开该缓存
@@ -615,14 +637,14 @@ async function attemptLabyrinth(ns, serverState, options) {
 
     // 尝试获取实验室位置
     try {
-        const report = ns.dnet.labreport();
-        if (report && report.success) {
-            ns.print(`INFO: 🧪 实验室位置报告: ${report.message}`);
+        const report = await callDarknetProxy(ns, 'labreport', {}, 15000);
+        if (report.ok && report.data?.success) {
+            ns.print(`INFO: 🧪 实验室位置报告: ${report.data.message}`);
             // 成功连接实验室! 尝试雷达
             try {
-                const radar = ns.dnet.labradar();
-                if (radar && radar.success && options['verbose']) {
-                    ns.print(`INFO: 🧪 实验室雷达:\n${radar.message}`);
+                const radar = await callDarknetProxy(ns, 'labradar', {}, 15000);
+                if (radar.ok && radar.data?.success && options['verbose']) {
+                    ns.print(`INFO: 🧪 实验室雷达:\n${radar.data.message}`);
                 }
             } catch (e) {}
         }
@@ -697,39 +719,31 @@ function sanitizeHost(host) {
 }
 
 /**
- * 通过 Singularity API 连接玩家到 darkweb
- * 脚本留在 home 上运行，但 ns.dnet API 使用玩家的终端位置
+ * 确保 darknet-proxy.js 已部署到 darkweb 上
+ * 后续所有 dnet 操作都通过此代理执行
  * @param {NS} ns
  * @returns {Promise<boolean>}
  */
-async function tryConnectToDarkweb(ns) {
-    // 先检查 Tor
-    let hasTor = false;
+async function ensureDarkwebProxy(ns) {
     try {
-        // V3 中 ns.scan 不返回 darkweb，尝试用 Singularity 买一次（已买则返回false不扣钱）
-        if (ns.singularity.purchaseTor()) {
-            ns.tprint("SUCCESS: Tor 路由器已购买!");
-            hasTor = true;
+        // 尝试复制 proxy 和 worker 到 darkweb
+        const proxyOk = await ns.scp(PROXY_SCRIPT, "darkweb", "home");
+        const workerOk = await ns.scp(WORKER_SCRIPT, "darkweb", "home");
+        if (!proxyOk) {
+            ns.tprint("ERROR: 无法复制脚本到 darkweb (Tor 未购买?)");
+            return false;
+        }
+        // 用一次 probe 测试代理是否正常工作
+        const result = await callDarknetProxy(ns, 'probe', {}, 10000);
+        if (result.ok) {
+            ns.print(`INFO: ✓ 暗网代理测试通过，发现 ${result.data.length} 个服务器`);
+            return true;
         } else {
-            hasTor = true; // 购买返回 false 说明已拥有
+            ns.tprint(`WARNING: 暗网代理测试失败: ${result.error}`);
+            return false;
         }
     } catch (e) {
-        // 无 SF4，通过是否能 scp 到 darkweb 来判断
-        try { hasTor = await ns.scp(SCRIPT_NAME, "darkweb", "home"); } catch (e2) { hasTor = false; }
-    }
-
-    if (!hasTor) {
-        ns.tprint("WARNING: 未检测到 Tor 路由器，请先购买");
-        return false;
-    }
-
-    // 尝试连接 darkweb
-    try {
-        ns.singularity.connect("darkweb");
-        ns.print("SUCCESS: ✓ 已连接到 darkweb");
-        return true;
-    } catch (e) {
-        ns.tprint("WARNING: 无法自动连接 darkweb(需手动在终端执行: connect darkweb)");
+        ns.tprint(`WARNING: darkweb 不可访问: ${e}`);
         return false;
     }
 }
