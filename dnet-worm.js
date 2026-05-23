@@ -153,6 +153,10 @@ export async function main(ns) {
           }
         }
         if (t.op === "freeMemory" && t.host) await freeMem(t.host);
+        if (t.op === "exec" && t.script && t.target) {
+          const ok = await ns.scp(t.script, t.target);
+          if (ok) ns.exec(t.script, t.target, 1);
+        }
       }
     } catch {}
   }

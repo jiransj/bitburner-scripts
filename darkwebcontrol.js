@@ -17,6 +17,8 @@ export async function main(ns) {
     ? ns.args[ns.args.indexOf("--worm") + 1]
     : "dnet-worm.js";
   const REPORT_BASE = "/Temp/dnet-worm-";
+  const OPENCACHE_SCRIPT = "openCache.js";
+  const openCacheSize = ns.getScriptRam(OPENCACHE_SCRIPT, "home");
 
   ns.disableLog('ALL');
   ns.ui.openTail();
@@ -394,10 +396,23 @@ export async function main(ns) {
         if (r.reporter && r.password) knownPasswords[r.reporter] = r.password;
         if (r.host && r.host !== r.reporter) {
           // 非自身回报 → 让 reporter 执行后续操作
-          await dispatchTo(r.reporter, [
+          const tasks = [
             { op: "authenticate", host: r.host, password: r.password || "" },
             { op: "freeMemory", host: r.host },
-          ], knownPasswords[r.reporter]);
+          ];
+          // 如果目标服务器有足够的 RAM，顺便部署 openCache.js
+          if (openCacheSize > 0 && ns.getServerMaxRam(r.host) >= openCacheSize + 2) {
+            // 先 scp openCache.js 到目标服务器
+            const pwd = knownPasswords[r.reporter] || r.password;
+            if (pwd) {
+              try { await ns.dnet.connectToSession(r.host, pwd); } catch {}
+            }
+            const scpOk = await ns.scp("openCache.js", r.host);
+            if (scpOk) {
+              tasks.push({ op: "exec", script: "openCache.js", target: r.host });
+            }
+          }
+          await dispatchTo(r.reporter, tasks, knownPasswords[r.reporter]);
         } else if (r.host === r.reporter || !r.reporter) {
           // 自身回报 → 只统计
         }
