@@ -707,14 +707,14 @@ export async function main(ns) {
                 launchScriptHelper(ns, 'gangs.js');
         }
 
-        // Launch darkweb control if darknet API is available and not disabled
+        // Launch darkweb control only if DarkscapeNavigator.exe (darknet) has been purchased
         if (!options['disable-darknet'] && !findScript('darkwebcontrol.js')) {
             try {
-                if (typeof ns.dnet !== 'undefined' && ns.dnet.probe() !== undefined) {
+                if (ns.fileExists("DarkscapeNavigator.exe", "home")) {
                     launchScriptHelper(ns, 'darkwebcontrol.js');
                 }
             } catch (e) {
-                // Darknet not accessible yet, will retry next cycle
+                // fileExists not supported or DarkscapeNavigator not purchased yet, will retry next cycle
             }
         }
 
