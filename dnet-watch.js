@@ -304,7 +304,7 @@ export async function main(ns) {
     // 暗网操作前必须建立会话连接
     // ⚠️ worm 退出后其 PID 的会话已销毁
     //    用 authenticate 重新认证，为当前(PID)建新会话
-    if (password && password !== "已存在会话") {
+    if (password !== null && password !== undefined && password !== "已存在会话") {
       let authOk = false;
       try {
         const authResult = await ns.dnet.authenticate(host, password);
@@ -481,7 +481,7 @@ export async function main(ns) {
     if (tasks.length === 0) return;
     try {
       const pwd = knownPasswords[reporter];
-      if (pwd) { try { await ns.dnet.connectToSession(reporter, pwd); } catch {} }
+      if (pwd !== undefined && pwd !== null) { try { await ns.dnet.connectToSession(reporter, pwd); } catch {} }
       const safeName = reporter.replace(/[^a-zA-Z0-9]/g, "_");
       const cmdFile = REPORT_BASE + "cmd-" + safeName + ".txt";
       ns.write(cmdFile, JSON.stringify({ tasks }), "w");
