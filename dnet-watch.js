@@ -52,21 +52,7 @@ export async function main(ns) {
     ns.print(`[${MY_HOST}] 本机标记为已感染`);
   }
 
-  // 启动时确保本服务器只有 1 份 dnet-watch（已有则退出自己）
-  (function ensureSingleWatch() {
-    try {
-      const myPid = ns.pid;
-      for (const p of ns.ps(MY_HOST)) {
-        if (p.filename === ns.getScriptName() && p.pid !== myPid) {
-          ns.tprint(`🚫 [${MY_HOST}] 已有 watch 在运行，本实例退出`);
-          ns.exit();
-          return;
-        }
-      }
-    } catch {} // 无法检测时继续，由主循环处理重复
-  })();
-
-  // 启动时清理本服务器上所有残留的旧版 dnet-worm.js
+  // 启动时清理本服务器上所有残留的旧版 dnet-worm.js（v2.0 含有已废弃的 API）
   (function cleanupOldWorms() {
     let killed = 0;
     for (const p of ns.ps(MY_HOST)) {
@@ -301,23 +287,14 @@ export async function main(ns) {
   async function deployWatchTo(host, password) {
     const watchScript = ns.getScriptName();
 
-    // 暗网操作前必须建立会话连接
-    // ⚠️ worm 退出后其 PID 的会话已销毁
-    //    用 authenticate 重新认证，为当前(PID)建新会话
-    if (password !== null && password !== undefined && password !== "已存在会话") {
-      let authOk = false;
+    // 暗网操作前必须建立/重建会话连接（参考 darkwebcontrol.js dispatchTo 模式）
+    if (password && password !== "已存在会话") {
       try {
-        const authResult = await ns.dnet.authenticate(host, password);
-        authOk = authResult && authResult.success;
-        if (!authOk) ns.print(`[${MY_HOST}] ${host}: 认证返回失败: ${authResult?.message}`);
+        await ns.dnet.connectToSession(host, password);
+        ns.print(`[${MY_HOST}] ${host}: 会话已连接`);
       } catch (e) {
-        ns.print(`[${MY_HOST}] ${host}: 认证异常: ${e}`);
-      }
-      if (!authOk) {
-        // 降级尝试 connectToSession
-        try { await ns.dnet.connectToSession(host, password); } catch {}
-      } else {
-        ns.print(`[${MY_HOST}] ${host}: 认证成功`);
+        ns.print(`[${MY_HOST}] ${host}: connectToSession 失败: ${e}`);
+        // 继续尝试，可能已有会话
       }
     }
 
@@ -481,7 +458,7 @@ export async function main(ns) {
     if (tasks.length === 0) return;
     try {
       const pwd = knownPasswords[reporter];
-      if (pwd !== undefined && pwd !== null) { try { await ns.dnet.connectToSession(reporter, pwd); } catch {} }
+      if (pwd) { try { await ns.dnet.connectToSession(reporter, pwd); } catch {} }
       const safeName = reporter.replace(/[^a-zA-Z0-9]/g, "_");
       const cmdFile = REPORT_BASE + "cmd-" + safeName + ".txt";
       ns.write(cmdFile, JSON.stringify({ tasks }), "w");
@@ -496,28 +473,6 @@ export async function main(ns) {
   // ======================== 异步破译队列 ========================
 
   const pendingCracks = new Map(); // target → { pid, safeTarget }
-  const pendingDeploys = new Map(); // target → { password, safeTarget, retries }
-
-  /** 重试部署失败的 watch（破解成功后部署可能因网络波动失败） */
-  async function retryPendingDeploys() {
-    const done = [];
-    for (const [target, info] of pendingDeploys) {
-      if (info.retries >= 5) {
-        ns.print(`[${MY_HOST}] ${target}: 部署重试已达上限，放弃`);
-        done.push(target);
-        continue;
-      }
-      ns.print(`[${MY_HOST}] ${target}: 重试部署 (#${info.retries + 1})`);
-      const ok = await deployWatchTo(target, info.password);
-      if (ok) {
-        ns.tprint(`🚀 [${MY_HOST}] → ${target}: 重试部署成功`);
-        done.push(target);
-      } else {
-        info.retries++;
-      }
-    }
-    for (const t of done) pendingDeploys.delete(t);
-  }
 
   /** 检查已完成的后台 worm，处理结果 */
   async function processCompletedCracks() {
@@ -561,12 +516,7 @@ export async function main(ns) {
         knownPasswords[target] = result.password;
         // 释放内存 + 部署 watch
         await freeMemory(target);
-        const deployed = await deployWatchTo(target, result.password);
-        if (!deployed) {
-          // 部署失败→加入重试队列，避免反复重新破解
-          ns.print(`[${MY_HOST}] ${target}: 部署失败，加入重试队列`);
-          pendingDeploys.set(target, { password: result.password, safeTarget, retries: 0 });
-        }
+        await deployWatchTo(target, result.password);
       } catch (e) {
         ns.print(`[${MY_HOST}] ${target}: 结果处理异常: ${e}`);
       }
@@ -576,7 +526,6 @@ export async function main(ns) {
   /** 启动新的破译任务（exec worm on MY_HOST） */
   function startNewCrack(host) {
     if (pendingCracks.has(host)) return;
-    if (pendingDeploys.has(host)) return; // 等待部署重试，不再破解
     if (pendingCracks.size >= MAX_CONCURRENT_CRACKS) return; // 并发限制
     const safeTarget = host.replace(/[^a-zA-Z0-9]/g, "_");
     const resultFile = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
@@ -674,9 +623,8 @@ export async function main(ns) {
         }
       }
 
-      // 阶段 3b: 处理已完成的破译任务 + 重试部署
+      // 阶段 3b: 处理已完成的破译任务
       await processCompletedCracks();
-      await retryPendingDeploys();
 
       // 阶段 4: 检测全部邻居是否均已部署 watch
       const allHaveWatch = neighbors.every((h) => {
