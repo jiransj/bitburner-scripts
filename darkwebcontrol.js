@@ -71,35 +71,10 @@ export async function main(ns) {
   // ========== 部署 dnet-watch.js ==========
 
   let watchPid = 0;
-  let lastWatchSeen = 0; // 最近一次从心跳确认 watch 存活的时间戳
-  let lastDeployAttempt = 0;
-
-  /** 通过 watch 写到 home 的心跳文件判断它是否还活着（isRunning(pid) 在暗网服务器上不可靠） */
-  function watchSeenRecently() {
-    try {
-      if (ns.fileExists("/Temp/dnet-watch-heartbeat.txt", "home")) {
-        const hb = JSON.parse(ns.read("/Temp/dnet-watch-heartbeat.txt"));
-        if (hb && hb.ts && Date.now() - hb.ts < 20000) {
-          lastWatchSeen = hb.ts;
-          return true;
-        }
-      }
-    } catch {}
-    return false;
-  }
-
   async function ensureWatch() {
     if (!ns.fileExists(WATCH_SCRIPT, "home")) return false;
-    if (ns.isRunning(watchPid) || watchSeenRecently()) return true;
-    // 避免每 5 秒重复部署：部署失败后冷却 30 秒再试
-    if (Date.now() - lastDeployAttempt < 30000) return false;
-    lastDeployAttempt = Date.now();
-    // 防止残留旧版 watch（更新前的进程会与新控制中枢不兼容，导致部署后无任何活动）
-    try {
-      for (const p of ns.ps("darkweb")) {
-        if (p.filename === WATCH_SCRIPT) { ns.kill(p.pid); }
-      }
-    } catch {}
+    const running = ns.isRunning(watchPid);
+    if (running) return true;
     // 先清理旧 worm
     try { for (const p of ns.ps("darkweb")) { if (p.filename === WORM_SCRIPT) ns.kill(p.pid); } } catch {}
     // 部署全部脚本
@@ -109,7 +84,7 @@ export async function main(ns) {
       }
     }
     watchPid = ns.exec(WATCH_SCRIPT, "darkweb", 1);
-    addLog(watchPid > 0 ? `🟢 watch 已部署 PID=${watchPid}` : "⚠️ watch 部署失败(30s后重试)");
+    addLog(watchPid > 0 ? `🟢 watch 已部署 PID=${watchPid}` : "⚠️ watch 部署失败");
     return watchPid > 0;
   }
 
