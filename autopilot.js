@@ -718,6 +718,16 @@ export async function main(ns) {
             }
         }
 
+        // Fallback: 兜底自动购买 TOR + 全部暗网程序（即使 daemon 未重启 / 未正常调度也能生效）
+        // 与 daemon 的周期调度互不冲突：脚本单次运行、买完可负担的即退出，重复拉起无副作用
+        if ((4 in unlockedSFs || resetInfo.currentNode == 4) && !options['disable-darknet']) {
+            const ownsFormulas = ns.fileExists("Formulas.exe", "home");
+            if (!findScript('/Tasks/tor-manager.js'))
+                launchScriptHelper(ns, '/Tasks/tor-manager.js');
+            if (!findScript('/Tasks/program-manager.js') && !ownsFormulas)
+                launchScriptHelper(ns, '/Tasks/program-manager.js');
+        }
+
         // Launch work-for-factions if it isn't already running (rules for maybe killing unproductive instances are above)
         // Note: We delay launching our own 'work-for-factions.js' until daemon has warmed up, so we don't steal it's "kickstartHackXp" study focus
         if ((4 in unlockedSFs) && !findScript('work-for-factions.js') && Date.now() - daemonStartTime > 30000) {
