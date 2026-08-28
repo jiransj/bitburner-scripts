@@ -624,6 +624,9 @@ export async function main(ns) {
   ns.tprint(`🔭 [${MY_HOST}] dnet-watch.js v2.0 启动，每 ${CHECK_INTERVAL_MS / 1000}s 扫描一次`);
 
   let allInfectedCount = 0;
+  let loopCount = 0;
+  let warnedProbeError = false;
+  let warnedLoopError = false;
 
   while (true) {
     try {
@@ -644,14 +647,22 @@ export async function main(ns) {
       try {
         neighbors = ns.dnet.probe() || [];
       } catch (e) {
-        if (String(e).includes("not a darknet server")) {
+        const es = String(e);
+        if (es.includes("not a darknet server")) {
           ns.tprint(`❌ [${MY_HOST}] 本机不是暗网服务器`);
           return;
+        }
+        if (!warnedProbeError) {
+          warnedProbeError = true;
+          ns.tprint(`❌ [${MY_HOST}] ns.dnet.probe() 失败（仅提示一次）: ${es}\n  → 检查是否已购买 DarkscapeNavigator.exe / 是否处于 BN15`);
         }
         await ns.sleep(5000);
         continue;
       }
 
+      loopCount++;
+      if (loopCount === 1)
+        ns.tprint(`🔎 [${MY_HOST}] 首次探测到 ${neighbors.length} 个邻居`);
       ns.print(`[${MY_HOST}] 探测到 ${neighbors.length} 个邻居`);
 
       // 阶段 3: 对每个邻居执行检测 + 部署三步流程
@@ -753,6 +764,10 @@ export async function main(ns) {
       await reportStatus(neighbors, allHaveWatch);
     } catch (e) {
       ns.print(`[${MY_HOST}] ⚠️ 主循环异常: ${e}`);
+      if (!warnedLoopError) {
+        warnedLoopError = true;
+        ns.tprint(`⚠️ [${MY_HOST}] 主循环异常（仅提示一次）: ${e}`);
+      }
       // 不崩溃，继续下一轮
     }
 
