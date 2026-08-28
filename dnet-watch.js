@@ -52,22 +52,15 @@ export async function main(ns) {
     ns.print(`[${MY_HOST}] 本机标记为已感染`);
   }
 
-  // 启动时确保本服务器只有 1 份 dnet-watch（新实例优先：杀掉旧 pid 的实例，自己存活）
+  // 启动时确保本服务器只有 1 份 dnet-watch（已有则退出自己）
   (function ensureSingleWatch() {
     try {
       const myPid = ns.pid;
       for (const p of ns.ps(MY_HOST)) {
         if (p.filename === ns.getScriptName() && p.pid !== myPid) {
-          if (p.pid < myPid) {
-            // 我是更新启动的实例 → 杀掉旧实例（旧实例可能是更新前的残留版本）
-            ns.kill(p.pid);
-            ns.tprint(`🧹 [${MY_HOST}] 已杀掉旧 watch (PID=${p.pid})，本实例接管`);
-          } else {
-            // 已有更新启动的实例 → 本实例退出
-            ns.tprint(`🚫 [${MY_HOST}] 已有新版 watch (PID=${p.pid}) 在运行，本实例退出`);
-            ns.exit();
-            return;
-          }
+          ns.tprint(`🚫 [${MY_HOST}] 已有 watch 在运行，本实例退出`);
+          ns.exit();
+          return;
         }
       }
     } catch {} // 无法检测时继续，由主循环处理重复
@@ -588,34 +581,16 @@ export async function main(ns) {
     const safeTarget = host.replace(/[^a-zA-Z0-9]/g, "_");
     const resultFile = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
     if (ns.fileExists(resultFile)) ns.rm(resultFile);
-    let scriptRam = 0;
-    try { scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST); } catch {}
-    if (!scriptRam || scriptRam <= 0) {
-      // worm 不在本机（scp 曾静默失败）→ 立即从 home 重新复制一次
-      ns.print(`[${MY_HOST}] ${host}: ${WORM_SCRIPT} 不在本机 (ram=0)，尝试从 home 复制`);
-      try {
-        if (!ns.fileExists(WORM_SCRIPT, "home")) {
-          ns.print(`[${MY_HOST}] ${host}: home 上也没有 ${WORM_SCRIPT}，无法破译`);
-          return;
-        }
-        ns.scp(WORM_SCRIPT, MY_HOST);
-        scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST);
-        if (!scriptRam || scriptRam <= 0) { ns.print(`[${MY_HOST}] ${host}: 复制后 ram 仍为 0`); return; }
-        ns.print(`[${MY_HOST}] ${host}: ${WORM_SCRIPT} 复制成功 (ram=${ns.format.ram(scriptRam)})`);
-      } catch (e) {
-        ns.print(`[${MY_HOST}] ${host}: 复制 worm 异常 - ${e}`);
-        return;
-      }
-    }
+    const scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST);
     const availRam = ns.getServerMaxRam(MY_HOST) - ns.getServerUsedRam(MY_HOST);
     const threads = Math.max(1, Math.floor(availRam / scriptRam));
-    if (!Number.isFinite(threads) || threads < 1) { ns.print(`[${MY_HOST}] ${host}: RAM 不足`); return; }
+    if (threads < 1) { ns.print(`[${MY_HOST}] ${host}: RAM 不足`); return; }
     const pid = ns.exec(WORM_SCRIPT, MY_HOST, threads, "--target-only", host);
     if (pid > 0) {
       pendingCracks.set(host, { pid, safeTarget, startTime: Date.now() });
-      ns.print(`[${MY_HOST}] 🔧 worm ${host} (PID=${pid}, ${threads}线程)`);
+      ns.print(`[${MY_HOST}] 🔧 worm ${host} (PID=${pid})`);
     } else {
-      ns.print(`[${MY_HOST}] ${host}: worm 启动失败 (可用${ns.format.ram(availRam)} < 需要${ns.format.ram(scriptRam)}?)`);
+      ns.print(`[${MY_HOST}] ${host}: worm 启动失败`);
     }
   }
 
@@ -624,20 +599,11 @@ export async function main(ns) {
   ns.tprint(`🔭 [${MY_HOST}] dnet-watch.js v2.0 启动，每 ${CHECK_INTERVAL_MS / 1000}s 扫描一次`);
 
   let allInfectedCount = 0;
-  let loopCount = 0;
-  let warnedProbeError = false;
-  let warnedLoopError = false;
 
   while (true) {
     try {
       // 阶段 0: 处理控制中枢指令
       await checkControllerCommands();
-
-      // 阶段 0.5: 心跳（供 darkwebcontrol 判断本实例存活，避免重复部署）
-      try {
-        ns.write("/Temp/dnet-watch-heartbeat.txt", JSON.stringify({ host: MY_HOST, pid: ns.pid, ts: Date.now() }), "w");
-        await ns.scp("/Temp/dnet-watch-heartbeat.txt", "home");
-      } catch {}
 
       // 阶段 1: 管理 openCache.js
       await manageCacheWatcher();
@@ -647,22 +613,14 @@ export async function main(ns) {
       try {
         neighbors = ns.dnet.probe() || [];
       } catch (e) {
-        const es = String(e);
-        if (es.includes("not a darknet server")) {
+        if (String(e).includes("not a darknet server")) {
           ns.tprint(`❌ [${MY_HOST}] 本机不是暗网服务器`);
           return;
-        }
-        if (!warnedProbeError) {
-          warnedProbeError = true;
-          ns.tprint(`❌ [${MY_HOST}] ns.dnet.probe() 失败（仅提示一次）: ${es}\n  → 检查是否已购买 DarkscapeNavigator.exe / 是否处于 BN15`);
         }
         await ns.sleep(5000);
         continue;
       }
 
-      loopCount++;
-      if (loopCount === 1)
-        ns.tprint(`🔎 [${MY_HOST}] 首次探测到 ${neighbors.length} 个邻居`);
       ns.print(`[${MY_HOST}] 探测到 ${neighbors.length} 个邻居`);
 
       // 阶段 3: 对每个邻居执行检测 + 部署三步流程
@@ -764,10 +722,6 @@ export async function main(ns) {
       await reportStatus(neighbors, allHaveWatch);
     } catch (e) {
       ns.print(`[${MY_HOST}] ⚠️ 主循环异常: ${e}`);
-      if (!warnedLoopError) {
-        warnedLoopError = true;
-        ns.tprint(`⚠️ [${MY_HOST}] 主循环异常（仅提示一次）: ${e}`);
-      }
       // 不崩溃，继续下一轮
     }
 
