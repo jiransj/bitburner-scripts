@@ -19,7 +19,7 @@
 export async function main(ns) {
     // 与 daemon.js 的 darkwebProgramNames 一致，且严格按价格升序（便宜的优先买）
     const programNames = ["DeepscanV1.exe", "ServerProfiler.exe", "BruteSSH.exe", "AutoLink.exe", "FTPCrack.exe",
-        "DeepscanV2.exe", "HTTPWorm.exe", "DarkscapeNavigator.exe", "SQLInject.exe", "Formulas.exe"];
+        "relaySMTP.exe", "DeepscanV2.exe", "HTTPWorm.exe", "DarkscapeNavigator.exe", "SQLInject.exe", "Formulas.exe"];
 
     const interval = 2000;
 
