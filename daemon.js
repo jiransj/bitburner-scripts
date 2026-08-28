@@ -237,6 +237,9 @@ export async function main(ns) {
         // Conserve money if we get close to affording the last hack tool
         if (!ownedCracks.includes("SQLInject.exe") && playerMoney > 200e6)
             shouldReserve += 250e6; // Start saving at 200m of the 250m required for SQLInject
+        // Conserve money if we get close to affording DarkscapeNavigator.exe (50m via dark web; unlocks the DarkNet)
+        if (hasSingularityAccess() && !ownedPrograms.includes("DarkscapeNavigator.exe") && playerMoney > 40e6)
+            shouldReserve += 50e6; // Start saving at 40m of the 50m required for DarkscapeNavigator
         // Conserve money if we're close to being able to afford the Stock Market 4s API
         const fourSigmaCost = (bitNodeMults.FourSigmaMarketDataApiCost * 25000000000);
         if (!have4sApi && playerMoney >= fourSigmaCost / 2)
@@ -388,9 +391,10 @@ export async function main(ns) {
         // These scripts are spawned periodically (at some interval) to do their checks, with an optional condition that limits when they should be spawned
         // Note: Periodic script are generally run every 30 seconds, but intervals are spaced out to ensure they aren't all bursting into temporary RAM at the same time.
         periodicScripts = [
-            // Buy tor as soon as we can if we haven't already, and all the port crackers
-            { interval: 25000, name: "/Tasks/tor-manager.js", shouldRun: () => 4 in dictSourceFiles && !allHostNames.includes("darkweb") },
-            { interval: 26000, name: "/Tasks/program-manager.js", shouldRun: () => 4 in dictSourceFiles && ownedCracks.length != 5 },
+            // Buy tor as soon as we can if we haven't already, and all the dark web programs
+            // Note: tor-manager 现在自己用 ns.hasTorRouter() 检测（3.0+ 的 ns.scan 不再返回 darkweb）
+            { interval: 25000, name: "/Tasks/tor-manager.js", shouldRun: () => hasSingularityAccess() },
+            { interval: 26000, name: "/Tasks/program-manager.js", shouldRun: () => hasSingularityAccess() && ownedPrograms.length != darkwebProgramNames.length },
             { interval: 27000, name: "/Tasks/contractor.js", minRamReq: 14.2 }, // Periodically look for coding contracts that need solving
             // Buy every hacknet upgrade with up to 4h payoff if it is less than 10% of our current money or 8h if it is less than 1% of our current money.
             { interval: 28000, name: "hacknet-upgrade-manager.js", shouldRun: shouldUpgradeHacknet, args: () => ["-c", "--max-payoff-time", "4h", "--max-spend", getPlayerMoney(ns) * 0.1] },
@@ -708,6 +712,7 @@ export async function main(ns) {
                 await buildServerList(ns, true); // Check if any new servers have been purchased by the external host_manager process
                 await updateCachedServerData(ns); // Update server data that only needs to be refreshed once per loop
                 await updatePortCrackers(ns); // Check if any new port crackers have been purchased
+                await updateOwnedPrograms(ns); // Check if any new dark web programs have been purchased
                 await getPlayerInfo(ns); // Force an update of _cachedPlayerInfo               
                 if (!allHelpersRunning && loops % 60 == 0) // If we have not yet launched all helpers see if any are now ready to be run (launch may have been postponed while e.g. awaiting more home ram, or TIX API to be purchased)
                     allHelpersRunning = await runStartupScripts(ns);
@@ -2318,6 +2323,7 @@ export async function main(ns) {
         const toolsTyped = allTools.map(toolConfig => new Tool(toolConfig, toolCosts[toolConfig.name]));
         toolsByShortName = Object.fromEntries(toolsTyped.map(tool => [tool.shortName || hashToolDefinition(tool), tool]));
         await updatePortCrackers(ns);
+        await updateOwnedPrograms(ns);
         return toolsTyped;
     }
 
@@ -2333,11 +2339,26 @@ export async function main(ns) {
     const crackNames = ["BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe"];
     let ownedCracks = [];
 
+    /** 是否有 Singularity 权限（与游戏 canAccessBitNodeFeature(4) 一致：SF4 或当前处于 BN4） */
+    const hasSingularityAccess = () => 4 in dictSourceFiles || bitNodeN == 4;
+
+    /** All programs currently sold on the dark web, including non-port-cracker ones (DarkNet access etc.) */
+    const darkwebProgramNames = ["BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe",
+        "DeepscanV1.exe", "DeepscanV2.exe", "AutoLink.exe", "ServerProfiler.exe", "DarkscapeNavigator.exe", "Formulas.exe"];
+    let ownedPrograms = [];
+
     /** Determine which port crackers we own
      * @param {NS} ns */
     async function updatePortCrackers(ns) {
         const owned = await filesExist(ns, crackNames);
         ownedCracks = crackNames.filter((s, i) => owned[i]);
+    }
+
+    /** Determine which dark web programs we own (incl. DarkscapeNavigator.exe)
+     * @param {NS} ns */
+    async function updateOwnedPrograms(ns) {
+        const owned = await filesExist(ns, darkwebProgramNames);
+        ownedPrograms = darkwebProgramNames.filter((s, i) => owned[i]);
     }
 
     // script entry point

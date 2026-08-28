@@ -52,15 +52,22 @@ export async function main(ns) {
     ns.print(`[${MY_HOST}] 本机标记为已感染`);
   }
 
-  // 启动时确保本服务器只有 1 份 dnet-watch（已有则退出自己）
+  // 启动时确保本服务器只有 1 份 dnet-watch（新实例优先：杀掉旧 pid 的实例，自己存活）
   (function ensureSingleWatch() {
     try {
       const myPid = ns.pid;
       for (const p of ns.ps(MY_HOST)) {
         if (p.filename === ns.getScriptName() && p.pid !== myPid) {
-          ns.tprint(`🚫 [${MY_HOST}] 已有 watch 在运行，本实例退出`);
-          ns.exit();
-          return;
+          if (p.pid < myPid) {
+            // 我是更新启动的实例 → 杀掉旧实例（旧实例可能是更新前的残留版本）
+            ns.kill(p.pid);
+            ns.tprint(`🧹 [${MY_HOST}] 已杀掉旧 watch (PID=${p.pid})，本实例接管`);
+          } else {
+            // 已有更新启动的实例 → 本实例退出
+            ns.tprint(`🚫 [${MY_HOST}] 已有新版 watch (PID=${p.pid}) 在运行，本实例退出`);
+            ns.exit();
+            return;
+          }
         }
       }
     } catch {} // 无法检测时继续，由主循环处理重复
@@ -581,16 +588,34 @@ export async function main(ns) {
     const safeTarget = host.replace(/[^a-zA-Z0-9]/g, "_");
     const resultFile = "/Temp/dnet-worm-crack-result-" + safeTarget + ".txt";
     if (ns.fileExists(resultFile)) ns.rm(resultFile);
-    const scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST);
+    let scriptRam = 0;
+    try { scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST); } catch {}
+    if (!scriptRam || scriptRam <= 0) {
+      // worm 不在本机（scp 曾静默失败）→ 立即从 home 重新复制一次
+      ns.print(`[${MY_HOST}] ${host}: ${WORM_SCRIPT} 不在本机 (ram=0)，尝试从 home 复制`);
+      try {
+        if (!ns.fileExists(WORM_SCRIPT, "home")) {
+          ns.print(`[${MY_HOST}] ${host}: home 上也没有 ${WORM_SCRIPT}，无法破译`);
+          return;
+        }
+        ns.scp(WORM_SCRIPT, MY_HOST);
+        scriptRam = ns.getScriptRam(WORM_SCRIPT, MY_HOST);
+        if (!scriptRam || scriptRam <= 0) { ns.print(`[${MY_HOST}] ${host}: 复制后 ram 仍为 0`); return; }
+        ns.print(`[${MY_HOST}] ${host}: ${WORM_SCRIPT} 复制成功 (ram=${ns.format.ram(scriptRam)})`);
+      } catch (e) {
+        ns.print(`[${MY_HOST}] ${host}: 复制 worm 异常 - ${e}`);
+        return;
+      }
+    }
     const availRam = ns.getServerMaxRam(MY_HOST) - ns.getServerUsedRam(MY_HOST);
     const threads = Math.max(1, Math.floor(availRam / scriptRam));
-    if (threads < 1) { ns.print(`[${MY_HOST}] ${host}: RAM 不足`); return; }
+    if (!Number.isFinite(threads) || threads < 1) { ns.print(`[${MY_HOST}] ${host}: RAM 不足`); return; }
     const pid = ns.exec(WORM_SCRIPT, MY_HOST, threads, "--target-only", host);
     if (pid > 0) {
       pendingCracks.set(host, { pid, safeTarget, startTime: Date.now() });
-      ns.print(`[${MY_HOST}] 🔧 worm ${host} (PID=${pid})`);
+      ns.print(`[${MY_HOST}] 🔧 worm ${host} (PID=${pid}, ${threads}线程)`);
     } else {
-      ns.print(`[${MY_HOST}] ${host}: worm 启动失败`);
+      ns.print(`[${MY_HOST}] ${host}: worm 启动失败 (可用${ns.format.ram(availRam)} < 需要${ns.format.ram(scriptRam)}?)`);
     }
   }
 
@@ -604,6 +629,12 @@ export async function main(ns) {
     try {
       // 阶段 0: 处理控制中枢指令
       await checkControllerCommands();
+
+      // 阶段 0.5: 心跳（供 darkwebcontrol 判断本实例存活，避免重复部署）
+      try {
+        ns.write("/Temp/dnet-watch-heartbeat.txt", JSON.stringify({ host: MY_HOST, pid: ns.pid, ts: Date.now() }), "w");
+        await ns.scp("/Temp/dnet-watch-heartbeat.txt", "home");
+      } catch {}
 
       // 阶段 1: 管理 openCache.js
       await manageCacheWatcher();

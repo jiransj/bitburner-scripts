@@ -9,7 +9,12 @@ export async function main(ns) {
     if (!keepRunning)
         ns.print(`tor-manager will run once. Run with argument "-c" to run continuously.`)
 
-    let hasTor = () => ns.scan("home").includes("darkweb");
+    // Bitburner 3.0+: darkweb 是暗网服务器，ns.scan() 不再返回它，必须用 ns.hasTorRouter()
+    // （旧版本 fallback 到 scan 检测）
+    let hasTor = () => {
+        try { return ns.hasTorRouter(); }
+        catch (e) { return ns.scan("home").includes("darkweb"); }
+    };
     if (hasTor())
         return ns.print('Player already has Tor');
     do {
