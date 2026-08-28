@@ -102,7 +102,7 @@ const statusUpdateInterval = 60 * 1000; // 1 minute (outside of this, minor upda
 const checkForNewPrioritiesInterval = 10 * 60 * 1000; // 10 minutes. Interrupt whatever we're doing and check whether we could be doing something more useful.
 const waitForFactionInviteTime = 30 * 1000; // The game will only issue one new invite every 25 seconds, so if you earned two by travelling to one city, might have to wait a while
 
-let shouldFocus; // Whether we should focus on work or let it be backgrounded (based on whether "Neuroreceptor Management Implant" is owned, or "--no-focus" is specified)
+let shouldFocus; // Whether we should focus on work or let it be backgrounded. Always false: this script must never take player focus.
 // And a bunch of globals because managing state and encapsulation is hard.
 let hasFocusPenalty, hasSimulacrum, favorToDonate, fulcrumHackReq, notifiedAboutDaedalus, playerInBladeburner, wasGrafting, currentBitnode;
 let dictSourceFiles, dictFactionFavors, playerGang, mainLoopStart, scope, numJoinedFactions, lastTravel, crimeCount;
@@ -199,7 +199,7 @@ async function loadStartupData(ns) {
     const installedAugmentations = await getNsDataThroughFile(ns, `ns.singularity.getOwnedAugmentations()`, '/Temp/player-augs-installed.txt');
     // Based on what augmentations we own, we can change our own behaviour (e.g. whether to allow work to steal focus)
     hasFocusPenalty = !installedAugmentations.includes("Neuroreceptor Management Implant"); // Check if we have an augmentation that lets us not have to focus at work (always nicer if we can background it)
-    shouldFocus = !options['no-focus'] && hasFocusPenalty; // Focus at work for the best rate of rep gain, unless focus activities are disabled via command line
+    shouldFocus = false; // Never take player focus: always background faction/company work, study and crime (even if it means incurring the non-focus penalty)
     hasSimulacrum = installedAugmentations.includes("The Blade's Simulacrum");
 
     // Find out if we're in a gang
@@ -645,7 +645,7 @@ export async function crimeForKillsKarmaStats(ns, reqKills, reqKarma, reqStats, 
                 log(ns, `Committing Crime "${lastCrime}" Interrupted. (Now: ${crimeType ?? currentWork.type}) Restarting...`, false, 'warning');
                 if (!options['no-tail-windows']) tail(ns); // Force a tail window open to help the user kill this script if they accidentally closed the tail window and don't want to keep doing crime
             }
-            let focusArg = shouldFocus === undefined ? true : shouldFocus; // Only undefined if running as imported function
+            let focusArg = shouldFocus === undefined ? false : shouldFocus; // Never focus, even if running as an imported function (in which case shouldFocus is undefined)
             crimeTime = await getNsDataThroughFile(ns, 'ns.singularity.commitCrime(ns.args[0], ns.args[1])', null, [crime, focusArg])
             if (shouldFocus && !options['no-tail-windows']) tail(ns); // Force a tail window open when auto-criming with focus so that the user can more easily kill this script
         }
